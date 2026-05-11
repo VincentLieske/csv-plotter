@@ -24,7 +24,7 @@ Dieses Python-Skript hilft dir, Messdaten aus CSV-Dateien zu visualisieren. Es e
 
 Installiere die Abhängigkeiten mit:
 ```
-pip install pandas matplotlib reportlab
+pip install -r requirements.txt
 ```
 
 ## Verwendung
@@ -49,7 +49,6 @@ python csv-plotter.py <CSV-Datei1> [<CSV-Datei2> ...] [Optionen]
 - `csv_files`: Eine oder mehrere CSV-Dateien mit Messdaten (erforderlich).
 - `--y0`: Zeigt die Y=0-Linie und setzt die Y-Achse auf mindestens 0. Praktisch wenn die Daten die 0 sonst nicht enthalten.
 - `--bw`: Aktiviert Schwarz-Weiß-Darstellung mit verschiedenen Markern. Damit sieht's auf einem Schwarz-Weiß-Drucker besser aus – viel klarer als Graustufen-Konvertierung.
-- `--date-x`: Interpretiert die X-Achse als Datum. Erkennt automatisch deutsches Format bei deutschem System. Hilfreich für Zeitreihendaten.
 - `--no-pdf-view`: Verhindert automatisches Öffnen der PDFs nach der Erstelung. Nützlich für Skripte oder Server ohne GUI.
 - `-?` oder `--help`: Zeigt die Hilfe an und beendet das Programm.
 
@@ -82,7 +81,7 @@ python csv-plotter.py <CSV-Datei1> [<CSV-Datei2> ...] [Optionen]
 
 ## Hinweise
 
-- Das Skript erkennt automatisch das System-Locale und passt Datumsformate entsprechend an.
+- Das Skript versucht das Datumsformat automatisch zu erkennen und passt Datumsformate entsprechend an.
 - Bei Problemen mit der Datumsinterpretation überprüfe das Format in deinen CSVs.
 - Bei großen Datensätzen teilt das Skript Tabellen automatisch in mehrere Spalten auf.
 
