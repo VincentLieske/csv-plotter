@@ -1,60 +1,45 @@
 """
-CSV Parser - Verarbeitet CSV-Dateien und liefert strukturierte Informationen zurück
+CSV-Parser — Liest CSV-Dateien und parst alle Spalten automatisch.
+
+Umgang mit deutschen Formaten:
+- Trennzeichen: Semikolon (;)
+- Dezimalzeichen: Komma (,)
+- Datumsformate: DD.MM.YYYY, YYYY-MM-DD, etc.
 """
 import os
-
 import pandas as pd
 from dataclasses import dataclass
 from typing import List
 from column_parser import ColumnParser, ColumnResult
 
 
-# `ColumnResult` (from `column_parser`) already contains `series`, `column_type` and `column_name`.
-# Reuse it directly instead of declaring a duplicate `ParsedColumn` dataclass.
-
 @dataclass
 class ProcessedCSVFile:
-    """Enthält alle Informationen zu einer verarbeiteten CSV-Datei"""
-    filename: str
-    parsed_columns: List[ColumnResult]
+    """Eine verarbeitete CSV-Datei mit allen geparsten Spalten"""
+    filename: str              # Dateiname ohne Extension
+    parsed_columns: List[ColumnResult]  # Die geparsten Spalten (enthält `series`, `column_type`, `column_name`)
 
 
-def parse_csv_file(file_path) -> ProcessedCSVFile:
+def parse_csv_file(file_path: str) -> ProcessedCSVFile:
     """
-    Verarbeitet eine CSV-Datei und liefert strukturierte Informationen zurück.
-    
-    Parameters
-    ----------
-    file_path : str
-        Pfad zur CSV-Datei
-        
-    Returns
-    -------
-    ProcessedCSVFile
-        Objekt mit:
-        - filename: Dateiname ohne Extension
-        - parsed_columns: Liste der `ColumnResult`-Objekte (enthält `series`, `column_type`, `column_name`)
+    Liest eine CSV-Datei und parst alle Spalten.
+
+    Parameters:
+        file_path: Pfad zur CSV-Datei
+
+    Returns:
+        ProcessedCSVFile mit Dateiname und geparsten Spalten (enthält `series`, `column_type`, `column_name`)
     """
-    # CSV-Datei lesen
-    data = pd.read_csv(file_path, sep=';', decimal=',')
-    
-    # Dateiname ohne Extension
-    filename = os.path.basename(file_path).replace('.csv', '')
-    
-    # Spalten verarbeiten
-    parsed_columns = []
-    
-    for col_idx in range(len(data.columns)):
-        column_data = data.iloc[:, col_idx]
-        column_name = data.columns[col_idx]
-        
-        # Spalte parsen
-        result = ColumnParser.parse_column_to_series(column_data, column_name)
-        
-        # ColumnResult direkt weiterreichen (enthält `series`, `column_type`, `column_name`)
-        parsed_columns.append(result)
-    
-    return ProcessedCSVFile(
-        filename=filename,
-        parsed_columns=parsed_columns
-    )
+    # Lese CSV mit deutschen Einstellungen: ; als Trennzeichen, , als Dezimal
+    df = pd.read_csv(file_path, sep=';', decimal=',')
+
+    # Extrahiere Dateinamen ohne .csv Extension
+    filename = os.path.splitext(os.path.basename(file_path))[0]
+
+    # Parse alle Spalten automatisch
+    parsed_columns = [
+        ColumnParser.parse_column_to_series(df.iloc[:, i], df.columns[i])
+        for i in range(len(df.columns))
+    ]
+
+    return ProcessedCSVFile(filename=filename, parsed_columns=parsed_columns)
