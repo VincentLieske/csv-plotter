@@ -29,9 +29,24 @@ def parse_csv_file(file_path: str) -> ProcessedCSVFile:
 
     Returns:
         ProcessedCSVFile mit Dateiname und geparsten Spalten (enthält `series`, `column_type`, `column_name`)
+
+    Encoding: Versucht UTF-8, Latin-1 und Windows-1252 (häufig bei älteren Windows-Dateien mit Umlauten)
     """
-    # Lese CSV mit deutschen Einstellungen: ; als Trennzeichen, , als Dezimal
-    df = pd.read_csv(file_path, sep=';', decimal=',')
+    # Versuche mehrere Encodings (häufig bei deutschen Umlauten auf Windows)
+    encodings = ['utf-8', 'latin-1', 'cp1252']
+    df = None
+
+    for enc in encodings:
+        try:
+            # Lese CSV mit deutschen Einstellungen: ; als Trennzeichen, , als Dezimal
+            df = pd.read_csv(file_path, sep=';', decimal=',', encoding=enc)
+            print(f"[INFO] CSV mit Encoding '{enc}' gelesen: {file_path}")
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    if df is None:
+        raise ValueError(f"Konnte CSV '{file_path}' nicht mit unterstützten Encodings lesen")
 
     # Extrahiere Dateinamen ohne .csv Extension
     filename = os.path.splitext(os.path.basename(file_path))[0]
