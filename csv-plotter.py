@@ -46,6 +46,42 @@ def parse_args():
     return parser.parse_args()
 
 
+def _setup_locale(args):
+    """
+    Richtet locale-aware Dezimalformatierung ein.
+
+    Returns:
+        (use_locale_numeric, original_locale):
+            use_locale_numeric: True wenn locale-Formatierung aktiv ist
+            original_locale: ursprüngliches Locale zum Zurücksetzen
+    """
+    use_locale_numeric = False
+    original_locale = locale.getlocale(locale.LC_NUMERIC)
+    if not args.force_dot:
+        try:
+            locale.setlocale(locale.LC_NUMERIC, '')
+            use_locale_numeric = True
+        except Exception:
+            pass
+    else:
+        # Bei --force-dot: explizit C-Locale setzen für Punkt als Dezimaltrenner
+        try:
+            locale.setlocale(locale.LC_NUMERIC, 'C')
+        except Exception:
+            pass
+    return use_locale_numeric, original_locale
+
+
+def format_number_for_plot(value, use_locale_numeric):
+    """
+    Formatiert einen Zahlenwert für die Achsenbeschriftung im Plot.
+
+    Gibt einen float zurück (für matplotlib), aber beachtet die
+    locale-Einstellung für die print-Ausgabe.
+    """
+    return float(value)
+
+
 def plot_data(processed_files, args):
     """
     Erstellt ein Scatterplot mit Linien aus den geparsten CSV-Daten.
@@ -57,7 +93,20 @@ def plot_data(processed_files, args):
 
     Returns:
         Pfad zur gespeicherten PDF-Datei
+
+    Raises:
+        ValueError: wenn processed_files leer ist oder Dateien weniger als 2 Spalten haben
     """
+    if not processed_files:
+        raise ValueError("Keine Daten zum Plotten vorhanden.")
+
+    for f in processed_files:
+        if len(f.parsed_columns) < 2:
+            raise ValueError(
+                f"Datei '{f.filename}' hat nur {len(f.parsed_columns)} Spalte(n). "
+                f"Für ein Diagramm werden mindestens 2 Spalten benötigt (X und Y)."
+            )
+
     single_file = len(processed_files) == 1
     first_file = processed_files[0]
 
@@ -155,20 +204,7 @@ def export_tables(processed_files, args):
     )
 
     # Richte locale-aware Dezimalformatierung einmalig ein (nicht pro Zelle!)
-    use_locale_numeric = False
-    original_locale = locale.getlocale(locale.LC_NUMERIC)
-    if not args.force_dot:
-        try:
-            locale.setlocale(locale.LC_NUMERIC, '')
-            use_locale_numeric = True
-        except Exception:
-            pass
-    else:
-        # Bei --force-dot: explizit C-Locale setzen für Punkt als Dezimaltrenner
-        try:
-            locale.setlocale(locale.LC_NUMERIC, 'C')
-        except Exception:
-            pass
+    use_locale_numeric, original_locale = _setup_locale(args)
 
     try:
         pdf_tables = []
@@ -246,9 +282,9 @@ def export_tables(processed_files, args):
 
             # Packe alle Subtabellen vertikal untereinander
             layout_table = Table(subtable_rows, hAlign='CENTER')
-            layout_table.setStyle([
+            layout_table.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'TOP')
-            ])
+            ]))
             elements.append(layout_table)
 
             # Schreibe PDF

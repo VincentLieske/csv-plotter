@@ -19,6 +19,7 @@ def detect_dayfirst(series: pd.Series) -> bool:
     - Wenn erste Komponente > 12: muss ein Tag sein → dayfirst=True
     - Wenn zweite Komponente > 12: muss ein Tag sein → dayfirst=False
     - Bei mehrdeutigen Werten (z.B. 01-02-2026): Mehrheitsvoting über alle erkannten Werte
+    - ISO-Datum YYYY-MM-DD: wird ignoriert (erste Komponente ist Jahr, keine Aussage über Reihenfolge)
     - Fallback: True (deutsches Format ist wahrscheinlicher)
 
     Returns:
@@ -35,8 +36,12 @@ def detect_dayfirst(series: pd.Series) -> bool:
             continue
 
         try:
-            first, second = int(parts[0]), int(parts[1])
+            first, second, third = int(parts[0]), int(parts[1]), int(parts[2])
         except ValueError:
+            continue
+
+        # ISO-Format YYYY-MM-DD: erste Komponente ist Jahr (> 31), überspringen
+        if first > 31:
             continue
 
         # Wenn erste Komponente > 12: kann kein Monat sein → Tag zuerst

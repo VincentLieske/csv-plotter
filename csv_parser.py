@@ -30,12 +30,26 @@ def parse_csv_file(file_path: str) -> ProcessedCSVFile:
     Returns:
         ProcessedCSVFile mit Dateiname und geparsten Spalten (enthält `series`, `column_type`, `column_name`)
 
-    Encoding: Versucht UTF-8, Latin-1 und Windows-1252 (häufig bei älteren Windows-Dateien mit Umlauten)
+    Encoding: Versucht UTF-8, UTF-16 (mit BOM), Latin-1 und Windows-1252
+    (häufig bei älteren Windows-Dateien mit Umlauten)
     """
-    # Versuche mehrere Encodings (häufig bei deutschen Umlauten auf Windows)
-    encodings = ['utf-8', 'latin-1', 'cp1252']
-    df = None
+    # Erkenne Encoding via BOM (Byte Order Mark)
+    detected_encoding = None
+    with open(file_path, 'rb') as f:
+        raw = f.read(4)
 
+    if raw[:2] == b'\xff\xfe':
+        detected_encoding = 'utf-16'
+    elif raw[:2] == b'\xfe\xff':
+        detected_encoding = 'utf-16'
+    elif raw[:3] == b'\xef\xbb\xbf':
+        detected_encoding = 'utf-8-sig'
+    # Kein BOM: Versuche mehrere Encodings
+    encodings = ['utf-8', 'latin-1', 'cp1252']
+    if detected_encoding:
+        encodings = [detected_encoding] + encodings
+
+    df = None
     for enc in encodings:
         try:
             # Lese CSV mit deutschen Einstellungen: ; als Trennzeichen, , als Dezimal

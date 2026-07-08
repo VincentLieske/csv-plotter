@@ -1,0 +1,25 @@
+# Default: Alles ist binary (kein CRLF/LF-Umbruch, keine Diff-Erkennung)
+* binary
+
+# Explizit als Text markierte Dateien (mit diff, CRLF-Konvertierung)
+*.py        text diff=python
+*.md        text
+*.txt       text
+*.cfg       text
+*.ini       text
+*.yml       text
+*.yaml      text
+*.json      text
+*.toml      text
+*.csv       text
+*.gitignore text
+*.gitattributes text
+*.pyi       text diff=python
+*.rst       text
+*.bat       text
+*.sh        text
+*.env       text
+*.example   text
+*.sample    text
+*.cfg       text
+*.conf      text
