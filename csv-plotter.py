@@ -72,16 +72,6 @@ def _setup_locale(args):
     return use_locale_numeric, original_locale
 
 
-def format_number_for_plot(value, use_locale_numeric):
-    """
-    Formatiert einen Zahlenwert für die Achsenbeschriftung im Plot.
-
-    Gibt einen float zurück (für matplotlib), aber beachtet die
-    locale-Einstellung für die print-Ausgabe.
-    """
-    return float(value)
-
-
 def plot_data(processed_files, args):
     """
     Erstellt ein Scatterplot mit Linien aus den geparsten CSV-Daten.
@@ -185,6 +175,36 @@ def plot_data(processed_files, args):
     return pdf_plot
 
 
+def format_cell(value, col_type: ColumnType, use_locale_numeric: bool = False) -> str:
+    """
+    Formatiert einen einzelnen Zellenwert für die Tabellen-PDFs.
+
+    Args:
+        value: Der Zellenwert (kann NaN, NaT, Zahl, Datum, String sein)
+        col_type: Der Typ der Spalte (DATE, NUMERIC, TEXT)
+        use_locale_numeric: Ob locale-aware Formatierung für Zahlen verwendet werden soll
+
+    Returns:
+        Formatierter String für ReportLab
+    """
+    # Leere Werte (NaN, NaT)
+    if pd.isna(value):
+        return ""
+    # Datumsformat: DD.MM.YYYY
+    if col_type == ColumnType.DATE:
+        try:
+            return pd.Timestamp(value).strftime('%d.%m.%Y')
+        except Exception:
+            return str(value)
+    # Zahlenformat: locale-aware wenn möglich (z.B. "1.234,56" in Deutschland)
+    if col_type == ColumnType.NUMERIC and use_locale_numeric:
+        try:
+            return format(value, 'n')  # 'n' = locale-aware
+        except Exception:
+            pass
+    return str(value)
+
+
 def export_tables(processed_files, args):
     """
     Exportiert die geparsten Messwerte als Tabellen-PDFs.
@@ -208,25 +228,6 @@ def export_tables(processed_files, args):
 
     try:
         pdf_tables = []
-
-        def _format_cell(value, col_type: ColumnType) -> str:
-            """Formatiert einen einzelnen Zellenwert für die Tabelle"""
-            # Leere Werte (NaN, NaT)
-            if pd.isna(value):
-                return ""
-            # Datumsformat: DD.MM.YYYY
-            if col_type == ColumnType.DATE:
-                try:
-                    return pd.Timestamp(value).strftime('%d.%m.%Y')
-                except Exception:
-                    return str(value)
-            # Zahlenformat: locale-aware wenn möglich (z.B. "1.234,56" in Deutschland)
-            if col_type == ColumnType.NUMERIC and use_locale_numeric:
-                try:
-                    return format(value, 'n')  # 'n' = locale-aware
-                except Exception:
-                    pass
-            return str(value)
 
         # Erstelle eine Tabellen-PDF für jede CSV-Datei
         for processed_file in processed_files:
@@ -262,7 +263,7 @@ def export_tables(processed_files, args):
                 subrows = []
                 for row_idx in range(start, end):
                     row = [
-                        _format_cell(col.series.iloc[row_idx], col.column_type)
+                        format_cell(col.series.iloc[row_idx], col.column_type, use_locale_numeric)
                         for col in cols
                     ]
                     subrows.append(row)

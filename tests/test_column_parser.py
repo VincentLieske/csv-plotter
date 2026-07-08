@@ -80,6 +80,149 @@ class TestDetectColumnType:
         s = pd.Series(["01.01.2024", "15.03.2024", "24.12.2024", "irgendwas"])
         assert ColumnParser.detect_column_type(s) == ColumnType.DATE
 
+    def test_threshold_date_above_60_percent(self):
+        """70% Datum (7 von 10) → DATE"""
+        s = pd.Series(["01.01.2024"] * 7 + ["irgendwas"] * 3)
+        assert ColumnParser.detect_column_type(s) == ColumnType.DATE
+
+    def test_threshold_date_below_60_percent(self):
+        """50% Datum, 50% Zahlen → DATE (weil Date zuerst geprüft wird und 0.5 den DATE-Threshold nicht erreicht, aber Zahlen-Threshold 0.6 auch nicht → TEXT)"""
+        s = pd.Series(["01.01.2024"] * 5 + ["1,5"] * 5)
+        assert ColumnParser.detect_column_type(s) == ColumnType.TEXT
+
+    def test_threshold_numeric_above_60_percent(self):
+        """70% deutsche Zahlen (7 von 10 ohne Datumsmatch) → NUMERIC"""
+        s = pd.Series(["irgendwas"] * 3 + ["1,5"] * 7)
+        assert ColumnParser.detect_column_type(s) == ColumnType.NUMERIC
+
+    def test_threshold_numeric_below_60_percent(self):
+        """50% Zahlen (5 von 10) → TEXT"""
+        s = pd.Series(["irgendwas"] * 5 + ["1,5"] * 5)
+        assert ColumnParser.detect_column_type(s) == ColumnType.TEXT
+
+    def test_threshold_english_dot_above_60_percent(self):
+        """70% englische Punkt-Notation (7 von 10 ohne Datumsmatch) → NUMERIC"""
+        s = pd.Series(["irgendwas"] * 3 + ["1.5"] * 7)
+        assert ColumnParser.detect_column_type(s) == ColumnType.NUMERIC
+
+    def test_large_integers_without_separator(self):
+        """Große ganze Zahlen ohne Tausendertrenner → NUMERIC"""
+        s = pd.Series(["1000", "2000", "3000"])
+        assert ColumnParser.detect_column_type(s) == ColumnType.NUMERIC
+
+    def test_mixed_date_and_numeric_more_date(self):
+        """Gemischte Spalte mit mehr Datum als Zahlen (4 von 6 = 67%) → DATE"""
+        s = pd.Series(["01.01.2024", "15.03.2024", "24.12.2024", "01.05.2024", "1,5", "2,3"])
+        assert ColumnParser.detect_column_type(s) == ColumnType.DATE
+
+    def test_mixed_date_and_numeric_more_numeric(self):
+        """Gemischte Spalte mit mehr Zahlen als Datum (5 von 6 = 83%) → NUMERIC"""
+        s = pd.Series(["01.01.2024", "1,5", "2,3", "3,7", "4,1", "5,9"])
+        assert ColumnParser.detect_column_type(s) == ColumnType.NUMERIC
+
+
+class TestIsGermanNumber:
+    """Direkte Tests für _is_german_number"""
+
+    def test_simple_comma_number(self):
+        """1,5 → True"""
+        assert ColumnParser._is_german_number("1,5") is True
+
+    def test_thousands_comma_number(self):
+        """1.234,56 → True"""
+        assert ColumnParser._is_german_number("1.234,56") is True
+
+    def test_multi_thousands_comma_number(self):
+        """1.000.000,00 → True"""
+        assert ColumnParser._is_german_number("1.000.000,00") is True
+
+    def test_english_dot_is_false(self):
+        """1.5 → False"""
+        assert ColumnParser._is_german_number("1.5") is False
+
+    def test_integer_without_comma_is_false(self):
+        """1234 → False"""
+        assert ColumnParser._is_german_number("1234") is False
+
+    def test_german_without_comma_is_false(self):
+        """1.234 → False (Punkt-Tausender, aber kein Komma)"""
+        assert ColumnParser._is_german_number("1.234") is False
+
+    def test_text_is_false(self):
+        """abc → False"""
+        assert ColumnParser._is_german_number("abc") is False
+
+    def test_empty_string_is_false(self):
+        """"" → False"""
+        assert ColumnParser._is_german_number("") is False
+
+    def test_only_decimal_separator(self):
+        """,5 → False (ungültiges Format)"""
+        assert ColumnParser._is_german_number(",5") is False
+
+    def test_only_thousands_dot(self):
+        """1. → False"""
+        assert ColumnParser._is_german_number("1.") is False
+
+
+class TestGermanNumberToFloat:
+    """Direkte Tests für _german_number_to_float"""
+
+    def test_simple_comma(self):
+        """1,5 → 1.5"""
+        assert ColumnParser._german_number_to_float("1,5") == 1.5
+
+    def test_thousands_and_comma(self):
+        """1.234,56 → 1234.56"""
+        assert ColumnParser._german_number_to_float("1.234,56") == 1234.56
+
+    def test_multi_thousands(self):
+        """1.000.000,00 → 1000000.0"""
+        assert ColumnParser._german_number_to_float("1.000.000,00") == 1000000.0
+
+    def test_large_number(self):
+        """12.345.678,90 → 12345678.9"""
+        assert ColumnParser._german_number_to_float("12.345.678,90") == 12345678.9
+
+
+class TestHasIsoFormat:
+    """Direkte Tests für _has_iso_format"""
+
+    def test_pure_iso(self):
+        """Reines ISO-Format → True"""
+        s = pd.Series(["2024-01-05", "2024-03-15", "2024-12-24"])
+        assert ColumnParser._has_iso_format(s) is True
+
+    def test_german_date_is_false(self):
+        """Deutsches DD.MM.YYYY → False"""
+        s = pd.Series(["01.01.2024", "15.03.2024"])
+        assert ColumnParser._has_iso_format(s) is False
+
+    def test_mixed_iso_and_german(self):
+        """ISO und deutsch gemischt → True (weil ISO > 50%)"""
+        s = pd.Series(["2024-01-05", "2024-03-15", "01.01.2024"])
+        assert ColumnParser._has_iso_format(s) is True
+
+    def test_mixed_iso_below_threshold(self):
+        """Weniger als 50% ISO → False"""
+        s = pd.Series(["2024-01-05", "01.01.2024", "15.03.2024"])
+        assert ColumnParser._has_iso_format(s) is False
+
+    def test_empty_series(self):
+        """Leere Series → False"""
+        s = pd.Series([], dtype=object)
+        assert ColumnParser._has_iso_format(s) is False
+
+    def test_all_nan(self):
+        """Nur NaN → False"""
+        s = pd.Series([None, None])
+        assert ColumnParser._has_iso_format(s) is False
+
+    def test_short_year_iso(self):
+        """ISO mit zweistelligem Jahr (24-01-05) → False (24 < 31, zählt nicht als ISO)"""
+        s = pd.Series(["24-01-05", "24-03-15"])
+        assert ColumnParser._has_iso_format(s) is False
+
 
 class TestParseNumericColumn:
     """Tests für die Zahlen-Parsing-Funktion"""
@@ -138,6 +281,50 @@ class TestParseNumericColumn:
         assert result.iloc[0] == 1.5
         assert result.iloc[1] == 2.3
         assert result.iloc[2] == 4.7
+
+    def test_thousands_dot_without_comma(self):
+        """Tausenderpunkt ohne Dezimalkomma: '1.000' → 1000.0"""
+        s = pd.Series(["1.000", "2.000"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == 1000.0
+        assert result.iloc[1] == 2000.0
+
+    def test_thousands_dot_multiple_groups(self):
+        """Mehrere Tausenderpunkte ohne Komma: '1.234.567' → 1234567.0"""
+        s = pd.Series(["1.234.567"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == 1234567.0
+
+    def test_english_dot_with_2_decimal_places(self):
+        """Englische Dezimalzahl '1.23' → 1.23 (2 Ziffern nach Punkt → kein Tausenderpunkt)"""
+        s = pd.Series(["1.23"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == 1.23
+
+    def test_mixed_german_thousands_and_english_dot(self):
+        """Gemischte Formate in einer Spalte"""
+        s = pd.Series(["1.234,56", "1234.56", "1,5"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == 1234.56
+        assert result.iloc[1] == 1234.56
+        assert result.iloc[2] == 1.5
+
+    def test_nan_and_valid_mixed(self):
+        """NaN + gültige Werte"""
+        s = pd.Series([np.nan, "1,5", np.nan, "2,3"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert pd.isna(result.iloc[0])
+        assert result.iloc[1] == 1.5
+        assert pd.isna(result.iloc[2])
+        assert result.iloc[3] == 2.3
+
+    def test_boolean_strings_to_nan(self):
+        """Boolesche Strings → NaN"""
+        s = pd.Series(["true", "false", "1,5"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert pd.isna(result.iloc[0])
+        assert pd.isna(result.iloc[1])
+        assert result.iloc[2] == 1.5
 
 
 class TestParseDateColumn:

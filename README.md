@@ -91,6 +91,31 @@ Dieses Projekt steht unter der MIT License. Siehe [LICENSE](LICENSE) für den vo
 
 **Kurz erklärt (Deutsch):** Du kannst die Software frei nutzen, kopieren, modifizieren und verteilen – auch kommerziell. Die einzige Bedingung ist, dass du den Copyright-Vermerk und die Lizenz beifügst. Die Software kommt ohne Garantie.
 
+## Tests ausführen
+
+Das Projekt verwendet `pytest` für automatisierte Tests. Alle Tests findest du im `tests/`-Verzeichnis.
+
+Tests manuell ausführen:
+```
+python -m pytest tests/ -v
+```
+
+### Pre-Commit Hook (empfohlen)
+
+Ein Pre-Commit Hook stellt sicher, dass alle Tests vor jedem Commit automatisch durchlaufen. Der Hook ist im Repository unter `githooks/pre-commit` versioniert.
+
+Installation (einmalig):
+```
+git config core.hooksPath githooks/
+```
+
+Danach wird bei jedem `git commit` automatisch `pytest` ausgeführt. Bei fehlgeschlagenen Tests wird der Commit abgebrochen.
+
+Zum Überspringen (z.B. für WIP-Commits):
+```
+git commit --no-verify
+```
+
 ## Beiträge
 
 Mach mit und hilf, das Projekt zu verbessern! Ich freue mich über deine Ideen, Bug-Reports, Feature-Vorschläge und Pull Requests auf GitHub. 
