@@ -25,6 +25,7 @@ from csv_parser import parse_csv_file
 # Pfad zu SumatraPDF (Portable Version, sperrt PDFs nicht)
 SUMATRA_PDF_PATH = r"C:\PortableApps\SumatraPDFPortable\SumatraPDFPortable.exe"
 
+
 def parse_args():
     """Parst Kommandozeilen-Argumente"""
     parser = argparse.ArgumentParser(
@@ -43,6 +44,7 @@ def parse_args():
                         help='Erzwingt Dezimalpunkt (.) statt lokaler Einstellung')
     parser.add_argument('-?', '--help', action='help', help='Diese Hilfe anzeigen und beenden')
     return parser.parse_args()
+
 
 def plot_data(processed_files, args):
     """
@@ -110,7 +112,7 @@ def plot_data(processed_files, args):
 
     # Konfiguriere Achsen und Titel
     ax.set_xlabel(x_label, fontsize=8)
-    ax.set_ylabel(y_label)
+    ax.set_ylabel(y_label, fontsize=8)
     ax.set_title("Messdaten" if single_file else "Vergleich Messungen")
     ax.grid(True)
     ax.legend()
@@ -133,6 +135,7 @@ def plot_data(processed_files, args):
     print(f"Plot gespeichert als {pdf_plot}")
     return pdf_plot
 
+
 def export_tables(processed_files, args):
     """
     Exportiert die geparsten Messwerte als Tabellen-PDFs.
@@ -153,105 +156,125 @@ def export_tables(processed_files, args):
 
     # Richte locale-aware Dezimalformatierung einmalig ein (nicht pro Zelle!)
     use_locale_numeric = False
+    original_locale = locale.getlocale(locale.LC_NUMERIC)
     if not args.force_dot:
         try:
             locale.setlocale(locale.LC_NUMERIC, '')
             use_locale_numeric = True
         except Exception:
             pass
+    else:
+        # Bei --force-dot: explizit C-Locale setzen für Punkt als Dezimaltrenner
+        try:
+            locale.setlocale(locale.LC_NUMERIC, 'C')
+        except Exception:
+            pass
 
-    pdf_tables = []
+    try:
+        pdf_tables = []
 
-    def _format_cell(value, col_type: ColumnType) -> str:
-        """Formatiert einen einzelnen Zellenwert für die Tabelle"""
-        # Leere Werte (NaN, NaT)
-        if pd.isna(value):
-            return ""
-        # Datumsformat: DD.MM.YYYY
-        if col_type == ColumnType.DATE:
-            try:
-                return pd.Timestamp(value).strftime('%d.%m.%Y')
-            except Exception:
-                return str(value)
-        # Zahlenformat: locale-aware wenn möglich (z.B. "1.234,56" in Deutschland)
-        if col_type == ColumnType.NUMERIC and use_locale_numeric:
-            try:
-                return format(value, 'n')  # 'n' = locale-aware
-            except Exception:
-                pass
-        return str(value)
+        def _format_cell(value, col_type: ColumnType) -> str:
+            """Formatiert einen einzelnen Zellenwert für die Tabelle"""
+            # Leere Werte (NaN, NaT)
+            if pd.isna(value):
+                return ""
+            # Datumsformat: DD.MM.YYYY
+            if col_type == ColumnType.DATE:
+                try:
+                    return pd.Timestamp(value).strftime('%d.%m.%Y')
+                except Exception:
+                    return str(value)
+            # Zahlenformat: locale-aware wenn möglich (z.B. "1.234,56" in Deutschland)
+            if col_type == ColumnType.NUMERIC and use_locale_numeric:
+                try:
+                    return format(value, 'n')  # 'n' = locale-aware
+                except Exception:
+                    pass
+            return str(value)
 
-    # Erstelle eine Tabellen-PDF für jede CSV-Datei
-    for processed_file in processed_files:
-        cols = processed_file.parsed_columns
-        if not cols:
-            continue
+        # Erstelle eine Tabellen-PDF für jede CSV-Datei
+        for processed_file in processed_files:
+            cols = processed_file.parsed_columns
+            if not cols:
+                continue
 
-        # Spaltenköpfe
-        columns_reportlab = [
-            Paragraph(col.column_name.replace("\\n", "<br/>"), centered_header_style)
-            for col in cols
-        ]
+            # Spaltenköpfe
+            columns_reportlab = [
+                Paragraph(col.column_name.replace("\\n", "<br/>"), centered_header_style)
+                for col in cols
+            ]
 
-        pdf_filename = f"{processed_file.filename}_tabelle.pdf"
-        doc = SimpleDocTemplate(pdf_filename, pagesize=A4)
-        elements = []
+            pdf_filename = f"{processed_file.filename}_tabelle.pdf"
+            doc = SimpleDocTemplate(pdf_filename, pagesize=A4)
+            elements = []
 
-        # Titel
-        table_title = processed_file.filename
-        elements.append(Paragraph(f"Messwerte Tabelle: {table_title}", styles['Heading1']))
+            # Titel
+            table_title = processed_file.filename
+            elements.append(Paragraph(f"Messwerte Tabelle: {table_title}", styles['Heading1']))
 
-        # Teile große Tabellen in mehrere Subtabellen (max 30 Zeilen pro Subtabelle)
-        max_rows_per_col = 30
-        num_rows = min(len(col.series) for col in cols)
-        num_subtables = math.ceil(num_rows / max_rows_per_col)
-        subtables = []
+            # Teile große Tabellen in mehrere Subtabellen (max 30 Zeilen pro Subtabelle)
+            max_rows_per_col = 30
+            num_rows = min(len(col.series) for col in cols)
+            num_subtables = math.ceil(num_rows / max_rows_per_col)
+            subtable_rows = []
 
-        for i in range(num_subtables):
-            start = i * max_rows_per_col
-            end = min((i + 1) * max_rows_per_col, num_rows)
+            for i in range(num_subtables):
+                start = i * max_rows_per_col
+                end = min((i + 1) * max_rows_per_col, num_rows)
 
-            # Baue Zeilendaten mit Formatierung
-            subrows = []
-            for row_idx in range(start, end):
-                row = [
-                    _format_cell(col.series.iloc[row_idx], col.column_type)
-                    for col in cols
-                ]
-                subrows.append(row)
+                # Baue Zeilendaten mit Formatierung
+                subrows = []
+                for row_idx in range(start, end):
+                    row = [
+                        _format_cell(col.series.iloc[row_idx], col.column_type)
+                        for col in cols
+                    ]
+                    subrows.append(row)
 
-            # Erstelle Subtabelle mit Styling
-            table_data = [columns_reportlab] + subrows
-            table = Table(table_data)
-            table.setStyle(TableStyle([
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-                ('ALIGN', (0, 0), (-1, 0), 'CENTER'),  # Header zentriert
-                ('VALIGN', (0, 0), (-1, 0), 'MIDDLE'),
-                ('ALIGN', (0, 1), (-1, -1), 'CENTER'),  # Daten zentriert
-                ('VALIGN', (0, 1), (-1, -1), 'MIDDLE'),
-                ('FONT', (0, 0), (-1, 0), 'Helvetica-Bold')  # Header fett
-            ]))
-            subtables.append(table)
+                # Erstelle Subtabelle mit Styling
+                table_data = [columns_reportlab] + subrows
+                table = Table(table_data)
+                table.setStyle(TableStyle([
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+                    ('ALIGN', (0, 0), (-1, 0), 'CENTER'),  # Header zentriert
+                    ('VALIGN', (0, 0), (-1, 0), 'MIDDLE'),
+                    ('ALIGN', (0, 1), (-1, -1), 'CENTER'),  # Daten zentriert
+                    ('VALIGN', (0, 1), (-1, -1), 'MIDDLE'),
+                    ('FONT', (0, 0), (-1, 0), 'Helvetica-Bold')  # Header fett
+                ]))
+                subtable_rows.append([table])
 
-        # Packe alle Subtabellen in eine Layout-Tabelle
-        layout_data = [[t for t in subtables]]
-        layout_table = Table(layout_data, hAlign='CENTER')
-        layout_table.setStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'TOP')
-        ])
-        elements.append(layout_table)
+            # Packe alle Subtabellen vertikal untereinander
+            layout_table = Table(subtable_rows, hAlign='CENTER')
+            layout_table.setStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP')
+            ])
+            elements.append(layout_table)
 
-        # Schreibe PDF
-        doc.build(elements)
-        print(f"Tabelle gespeichert als {pdf_filename}")
-        pdf_tables.append(pdf_filename)
+            # Schreibe PDF
+            doc.build(elements)
+            print(f"Tabelle gespeichert als {pdf_filename}")
+            pdf_tables.append(pdf_filename)
 
-    return pdf_tables
+        return pdf_tables
+
+    finally:
+        # Locale immer zurücksetzen
+        try:
+            locale.setlocale(locale.LC_NUMERIC, original_locale)
+        except Exception:
+            pass
+
 
 def open_pdfs(pdf_files):
     """Öffnet alle PDFs in SumatraPDF (sperrt Dateien nicht)"""
     for pdf in pdf_files:
-        subprocess.Popen([SUMATRA_PDF_PATH, "/n", pdf])
+        try:
+            subprocess.Popen([SUMATRA_PDF_PATH, "/n", pdf])
+        except FileNotFoundError:
+            print(f"Warnung: SumatraPDF nicht gefunden unter {SUMATRA_PDF_PATH}")
+        except Exception as e:
+            print(f"Warnung: Konnte PDF '{pdf}' nicht öffnen: {e}")
 
 
 def main():

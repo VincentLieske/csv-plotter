@@ -61,8 +61,8 @@ class ColumnParser:
         elif column_type == ColumnType.NUMERIC:
             parsed = ColumnParser._parse_numeric_column(column_values)
         else:
-            # TEXT: nur Whitespace trimmen
-            parsed = column_values.astype(str).str.strip()
+            # TEXT: nur Whitespace trimmen, NaN-Werte als leere Strings
+            parsed = column_values.fillna('').astype(str).str.strip()
 
         return ColumnResult(series=parsed, column_type=column_type, column_name=column_name)
 
