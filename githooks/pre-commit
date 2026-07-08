@@ -1,0 +1,38 @@
+#!/bin/sh
+#
+# Pre-commit Hook: Führt alle Tests aus, bevor ein Commit erstellt wird.
+# Falls Tests fehlschlagen, wird der Commit abgebrochen.
+#
+# Installation:
+#   git config core.hooksPath githooks/
+#
+# Deaktivieren (für einen einzelnen Commit):
+#   git commit --no-verify
+#
+
+echo "=== Pre-commit Hook: Führe Tests aus ==="
+
+# Zum Projekt-Root wechseln (Verzeichnis, in dem .git liegt)
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+# Aktiviere Virtual Environment falls vorhanden
+if [ -f ".venv/Scripts/activate" ]; then
+    . .venv/Scripts/activate
+elif [ -f ".venv/bin/activate" ]; then
+    . .venv/bin/activate
+fi
+
+# Führe pytest aus
+python -m pytest tests/ -q
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+    echo ""
+    echo "=== FEHLER: Tests fehlgeschlagen. Commit abgebrochen. ==="
+    echo "Zum Überspringen: git commit --no-verify"
+    exit 1
+fi
+
+echo ""
+echo "=== Alle Tests bestanden. Commit wird fortgesetzt. ==="
+exit 0
