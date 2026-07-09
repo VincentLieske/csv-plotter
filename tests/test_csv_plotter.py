@@ -1,18 +1,18 @@
 """
-Tests für csv-plotter.py — Integrationstests für Plot, Tabellen-Export, PDF-Öffnen und main().
+Tests für csv_plotter.py — Integrationstests für Plot, Tabellen-Export, PDF-Öffnen und main().
 """
 import pytest
 import pandas as pd
 import numpy as np
 import sys
-import importlib
 from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
 from column_parser import ColumnType, ColumnResult
 from csv_parser import ProcessedCSVFile
 
-# csv-plotter.py enthält einen Bindestrich → kein normaler Modul-Import möglich
-_csv_plotter = importlib.import_module('csv-plotter')
+# csv_plotter.py enthält einen Unterstrich → normaler Modul-Import möglich
+import csv_plotter
+_csv_plotter = csv_plotter
 format_cell = _csv_plotter.format_cell
 _setup_locale = _csv_plotter._setup_locale
 plot_data = _csv_plotter.plot_data
@@ -396,7 +396,7 @@ class TestMain:
             ColumnResult(series=pd.Series([1.5]), column_type=ColumnType.NUMERIC, column_name="X")
         ])
 
-        with patch.object(sys, 'argv', ['csv-plotter.py', str(csv_file)]):
+        with patch.object(sys, 'argv', ['csv_plotter.py', str(csv_file)]):
             with patch.object(_csv_plotter, 'parse_csv_file', return_value=mock_file) as mock_parse:
                 with patch.object(_csv_plotter, 'plot_data', return_value="plot.pdf"):
                     with patch.object(_csv_plotter, 'export_tables', return_value=["tab.pdf"]):
@@ -407,7 +407,7 @@ class TestMain:
 
     def test_main_file_not_found_exits(self, capsys):
         """Nicht-existierende Datei → Fehlermeldung + exit(1)"""
-        with patch.object(sys, 'argv', ['csv-plotter.py', 'nicht_da.csv']):
+        with patch.object(sys, 'argv', ['csv_plotter.py', 'nicht_da.csv']):
             with pytest.raises(SystemExit) as exc:
                 main()
         assert "Datei nicht gefunden" in capsys.readouterr().err
@@ -418,7 +418,7 @@ class TestMain:
         csv_file = tmp_path / "test.csv"
         csv_file.write_text("X;Y\n1,5;10,2\n")
 
-        with patch.object(sys, 'argv', ['csv-plotter.py', str(csv_file)]):
+        with patch.object(sys, 'argv', ['csv_plotter.py', str(csv_file)]):
             with patch.object(_csv_plotter, 'parse_csv_file', side_effect=ValueError("Fehler")):
                 with pytest.raises(SystemExit) as exc:
                     main()
@@ -430,7 +430,7 @@ class TestMain:
         csv_file = tmp_path / "test.csv"
         csv_file.write_text("X;Y\n1,5;10,2\n")
 
-        with patch.object(sys, 'argv', ['csv-plotter.py', str(csv_file)]):
+        with patch.object(sys, 'argv', ['csv_plotter.py', str(csv_file)]):
             with patch.object(_csv_plotter, 'parse_csv_file', return_value=MagicMock()):
                 with patch.object(_csv_plotter, 'plot_data', side_effect=ValueError("Plot kaputt")):
                     with pytest.raises(SystemExit) as exc:
@@ -443,7 +443,7 @@ class TestMain:
         csv_file = tmp_path / "test.csv"
         csv_file.write_text("X;Y\n1,5;10,2\n")
 
-        with patch.object(sys, 'argv', ['csv-plotter.py', '--no-pdf-view', str(csv_file)]):
+        with patch.object(sys, 'argv', ['csv_plotter.py', '--no-pdf-view', str(csv_file)]):
             with patch.object(_csv_plotter, 'parse_csv_file'):
                 with patch.object(_csv_plotter, 'plot_data', return_value="plot.pdf"):
                     with patch.object(_csv_plotter, 'export_tables', return_value=[]):

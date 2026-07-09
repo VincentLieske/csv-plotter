@@ -31,17 +31,17 @@ pip install -r requirements.txt
 
 ### Grundlegende Syntax
 ```
-python csv-plotter.py <CSV-Datei1> [<CSV-Datei2> ...] [Optionen]
+python csv_plotter.py <CSV-Datei1> [<CSV-Datei2> ...] [Optionen]
 ```
 
 ### Beispiele
 - Eine einzelne Datei plotten:
   ```
-  python csv-plotter.py Messung4.csv
+  python csv_plotter.py Messung4.csv
   ```
 - Mehrere Dateien vergleichen:
   ```
-  python csv-plotter.py Messung4.csv Messung4b.csv --y0 --bw
+  python csv_plotter.py Messung4.csv Messung4b.csv --y0 --bw
   ```
 
 ## Command-Line-Parameter
