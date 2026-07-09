@@ -83,6 +83,7 @@ python csv-plotter.py <CSV-Datei1> [<CSV-Datei2> ...] [Optionen]
 
 - Das Skript versucht das Datumsformat automatisch zu erkennen und passt Datumsformate entsprechend an.
 - Bei Problemen mit der Datumsinterpretation überprüfe das Format in deinen CSVs.
+- **Bekannte Einschränkung:** Gemischte Datumsformate innerhalb einer Spalte (z.B. ISO `2024-03-15` neben deutschem `DD.MM.YYYY`) werden nicht korrekt erkannt. Die ISO-Werte werden dann zu `NaT` (Not a Time). In der Praxis kommen gemischte Formate extrem selten vor.
 - Bei großen Datensätzen teilt das Skript Tabellen automatisch in mehrere Spalten auf.
 
 ## Lizenz

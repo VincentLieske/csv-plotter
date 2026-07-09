@@ -19,11 +19,16 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 import os
 import math
 import subprocess
+import sys
 from column_parser import ColumnType
 from csv_parser import parse_csv_file
 
 # Pfad zu SumatraPDF (Portable Version, sperrt PDFs nicht)
-SUMATRA_PDF_PATH = r"C:\PortableApps\SumatraPDFPortable\SumatraPDFPortable.exe"
+# Kann über Umgebungsvariable SUMATRA_PDF_PATH überschrieben werden
+SUMATRA_PDF_PATH = os.environ.get(
+    "SUMATRA_PDF_PATH",
+    r"C:\PortableApps\SumatraPDFPortable\SumatraPDFPortable.exe"
+)
 
 
 def parse_args():
@@ -61,14 +66,14 @@ def _setup_locale(args):
         try:
             locale.setlocale(locale.LC_NUMERIC, '')
             use_locale_numeric = True
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warnung: Konnte System-Locale nicht setzen: {e}", file=sys.stderr)
     else:
         # Bei --force-dot: explizit C-Locale setzen für Punkt als Dezimaltrenner
         try:
             locale.setlocale(locale.LC_NUMERIC, 'C')
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warnung: Konnte C-Locale nicht setzen: {e}", file=sys.stderr)
     return use_locale_numeric, original_locale
 
 
@@ -213,7 +218,13 @@ def export_tables(processed_files, args):
     - Überschrift mit Dateinamen
     - Tabelle mit allen Spalten und Zeilen
     - Automatische Aufteilung auf mehrere Subtabellen bei zu vielen Zeilen
+
+    Raises:
+        ValueError: wenn processed_files leer ist
     """
+    if not processed_files:
+        raise ValueError("Keine Daten zum Exportieren vorhanden.")
+
     styles = getSampleStyleSheet()
 
     # Stil für zentrierte Spaltenköpfe
@@ -305,6 +316,8 @@ def export_tables(processed_files, args):
 
 def open_pdfs(pdf_files):
     """Öffnet alle PDFs in SumatraPDF (sperrt Dateien nicht)"""
+    if not pdf_files:
+        return
     for pdf in pdf_files:
         try:
             subprocess.Popen([SUMATRA_PDF_PATH, "/n", pdf])
@@ -316,20 +329,37 @@ def open_pdfs(pdf_files):
 
 def main():
     """Hauptfunktion: Parst CSV-Dateien und exportiert Plot + Tabellen"""
-    args = parse_args()
+    try:
+        args = parse_args()
 
-    # Parse alle CSV-Dateien
-    processed_files = [parse_csv_file(file) for file in args.csv_files]
+        # Prüfe, ob alle CSV-Dateien existieren
+        for file in args.csv_files:
+            if not os.path.isfile(file):
+                print(f"Fehler: Datei nicht gefunden: '{file}'", file=sys.stderr)
+                sys.exit(1)
 
-    # Erstelle Diagramm
-    pdf_plot = plot_data(processed_files, args)
+        # Parse alle CSV-Dateien
+        processed_files = [parse_csv_file(file) for file in args.csv_files]
 
-    # Erstelle Tabellen-PDFs
-    pdf_tables = export_tables(processed_files, args)
+        # Erstelle Diagramm
+        pdf_plot = plot_data(processed_files, args)
 
-    # Öffne PDFs (falls nicht deaktiviert)
-    if not args.no_pdf_view:
-        open_pdfs([pdf_plot] + pdf_tables)
+        # Erstelle Tabellen-PDFs
+        pdf_tables = export_tables(processed_files, args)
+
+        # Öffne PDFs (falls nicht deaktiviert)
+        if not args.no_pdf_view:
+            open_pdfs([pdf_plot] + pdf_tables)
+
+    except ValueError as e:
+        print(f"Fehler: {e}", file=sys.stderr)
+        sys.exit(1)
+    except FileNotFoundError as e:
+        print(f"Fehler: Datei nicht gefunden: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unerwarteter Fehler: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
