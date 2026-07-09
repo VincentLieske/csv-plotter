@@ -203,6 +203,9 @@ def format_cell(value, col_type: ColumnType, use_locale_numeric: bool = False) -
             return str(value)
     # Zahlenformat: locale-aware wenn möglich (z.B. "1.234,56" in Deutschland)
     if col_type == ColumnType.NUMERIC and use_locale_numeric:
+        # Booleans sind keine echten Zahlen, direkt als String ausgeben
+        if isinstance(value, bool):
+            return str(value)
         try:
             return format(value, 'n')  # 'n' = locale-aware
         except Exception:

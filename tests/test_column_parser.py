@@ -126,13 +126,25 @@ class TestIsGermanNumber:
         """1,5 → True"""
         assert ColumnParser._is_german_number("1,5") is True
 
+    def test_negative_simple_comma(self):
+        """-1,5 → True"""
+        assert ColumnParser._is_german_number("-1,5") is True
+
     def test_thousands_comma_number(self):
         """1.234,56 → True"""
         assert ColumnParser._is_german_number("1.234,56") is True
 
+    def test_negative_thousands_comma(self):
+        """-1.234,56 → True"""
+        assert ColumnParser._is_german_number("-1.234,56") is True
+
     def test_multi_thousands_comma_number(self):
         """1.000.000,00 → True"""
         assert ColumnParser._is_german_number("1.000.000,00") is True
+
+    def test_negative_multi_thousands_comma(self):
+        """-1.000.000,00 → True"""
+        assert ColumnParser._is_german_number("-1.000.000,00") is True
 
     def test_english_dot_is_false(self):
         """1.5 → False"""
@@ -141,6 +153,10 @@ class TestIsGermanNumber:
     def test_integer_without_comma_is_false(self):
         """1234 → False"""
         assert ColumnParser._is_german_number("1234") is False
+
+    def test_negative_integer_without_comma_is_false(self):
+        """-1234 → False"""
+        assert ColumnParser._is_german_number("-1234") is False
 
     def test_german_without_comma_is_false(self):
         """1.234 → False (Punkt-Tausender, aber kein Komma)"""
@@ -419,6 +435,113 @@ class TestParseNumericColumn:
         assert result.iloc[0] == -1234567.0
 
 
+class TestParseSingleNumeric:
+    """Direkte Unit-Tests für _parse_single_numeric"""
+
+    def test_simple_german_comma(self):
+        """'1,5' → 1.5"""
+        assert ColumnParser._parse_single_numeric("1,5") == 1.5
+
+    def test_negative_german_comma(self):
+        """'-1,5' → -1.5"""
+        assert ColumnParser._parse_single_numeric("-1,5") == -1.5
+
+    def test_german_thousands_and_comma(self):
+        """'1.234,56' → 1234.56"""
+        assert ColumnParser._parse_single_numeric("1.234,56") == 1234.56
+
+    def test_negative_german_thousands_and_comma(self):
+        """'-1.234,56' → -1234.56"""
+        assert ColumnParser._parse_single_numeric("-1.234,56") == -1234.56
+
+    def test_german_thousands_dot_without_comma(self):
+        """'1.000' → 1000.0 (Tausenderpunkt)"""
+        assert ColumnParser._parse_single_numeric("1.000") == 1000.0
+
+    def test_negative_german_thousands_dot_without_comma(self):
+        """'-1.000' → -1000.0"""
+        assert ColumnParser._parse_single_numeric("-1.000") == -1000.0
+
+    def test_multi_thousands_dot_without_comma(self):
+        """'1.234.567' → 1234567.0"""
+        assert ColumnParser._parse_single_numeric("1.234.567") == 1234567.0
+
+    def test_negative_multi_thousands_dot(self):
+        """'-1.234.567' → -1234567.0"""
+        assert ColumnParser._parse_single_numeric("-1.234.567") == -1234567.0
+
+    def test_english_dot_notation(self):
+        """'1234.56' → 1234.56"""
+        assert ColumnParser._parse_single_numeric("1234.56") == 1234.56
+
+    def test_english_decimal_with_4_digits(self):
+        """'1.2345' → 1.2345 (4 Nachkommastellen → kein Tausenderpunkt)"""
+        assert ColumnParser._parse_single_numeric("1.2345") == 1.2345
+
+    def test_english_decimal_with_2_digits(self):
+        """'1.23' → 1.23 (2 Nachkommastellen → kein Tausenderpunkt)"""
+        assert ColumnParser._parse_single_numeric("1.23") == 1.23
+
+    def test_negative_english_number(self):
+        """'-1.5' → -1.5"""
+        assert ColumnParser._parse_single_numeric("-1.5") == -1.5
+
+    def test_negative_integer(self):
+        """'-42' → -42.0"""
+        assert ColumnParser._parse_single_numeric("-42") == -42.0
+
+    def test_positive_integer(self):
+        """'42' → 42.0"""
+        assert ColumnParser._parse_single_numeric("42") == 42.0
+
+    def test_empty_string(self):
+        """'' → NaN"""
+        assert pd.isna(ColumnParser._parse_single_numeric(""))
+
+    def test_nan_string(self):
+        """'nan' → NaN"""
+        assert pd.isna(ColumnParser._parse_single_numeric("nan"))
+
+    def test_invalid_text(self):
+        """'abc' → NaN"""
+        assert pd.isna(ColumnParser._parse_single_numeric("abc"))
+
+    def test_boolean_true(self):
+        """'true' → NaN"""
+        assert pd.isna(ColumnParser._parse_single_numeric("true"))
+
+    def test_boolean_false(self):
+        """'false' → NaN"""
+        assert pd.isna(ColumnParser._parse_single_numeric("false"))
+
+    def test_comma_without_decimals(self):
+        """'10,' → 10.0"""
+        assert ColumnParser._parse_single_numeric("10,") == 10.0
+
+    def test_double_dot_german_number(self):
+        """'1..234,56' → 1234.56 (doppelte Punkte werden entfernt)"""
+        assert ColumnParser._parse_single_numeric("1..234,56") == 1234.56
+
+    def test_whitespace_handling(self):
+        """' 1,5 ' → 1.5 (Whitespace wird getrimmt,
+        da _parse_numeric_column vorher trimmt)"""
+        # Hinweis: _parse_single_numeric selbst trimmt nicht,
+        # das passiert in _parse_numeric_column. Hier testen wir
+        # den direkten Aufruf ohne Trim.
+        assert ColumnParser._parse_single_numeric("1,5") == 1.5
+
+    def test_none_type(self):
+        """None → NaN"""
+        assert pd.isna(ColumnParser._parse_single_numeric(None))
+
+    def test_typeerror_handling(self):
+        """Objekt das TypeError wirft → NaN"""
+        class BadStr:
+            def __str__(self):
+                raise TypeError("bad")
+        assert pd.isna(ColumnParser._parse_single_numeric(BadStr()))
+
+
 class TestParseDateColumn:
     """Tests für die Datums-Parsing-Funktion"""
 
@@ -493,6 +616,40 @@ class TestParseDateColumn:
         s = pd.Series(["29.02.2024"])
         result = ColumnParser._parse_date_column(s)
         assert result.iloc[0] == pd.Timestamp("2024-02-29")
+
+
+class TestDetectColumnTypeThresholds:
+    """Tests für exakte Threshold-Grenzen in detect_column_type"""
+
+    def test_date_exactly_60_percent_is_text(self):
+        """Exakt 60% Datum (6 von 10) → 0.6 nicht > 0.6, also TEXT"""
+        s = pd.Series(["01.01.2024"] * 6 + ["irgendwas"] * 4)
+        assert ColumnParser.detect_column_type(s) == ColumnType.TEXT
+
+    def test_numeric_exactly_60_percent_is_text(self):
+        """Exakt 60% deutsche Zahlen (6 von 10) → 0.6 nicht > 0.6, also TEXT"""
+        s = pd.Series(["1,5"] * 6 + ["irgendwas"] * 4)
+        assert ColumnParser.detect_column_type(s) == ColumnType.TEXT
+
+    def test_english_dot_exactly_60_percent_is_text(self):
+        """Exakt 60% englische Zahlen (6 von 10) → 0.6 nicht > 0.6, also TEXT"""
+        s = pd.Series(["1.5"] * 6 + ["irgendwas"] * 4)
+        assert ColumnParser.detect_column_type(s) == ColumnType.TEXT
+
+    def test_date_61_percent_is_date(self):
+        """61% Datum (61 von 100) → 0.61 > 0.6 → DATE"""
+        s = pd.Series(["01.01.2024"] * 61 + ["irgendwas"] * 39)
+        assert ColumnParser.detect_column_type(s) == ColumnType.DATE
+
+    def test_numeric_61_percent_is_numeric(self):
+        """61% deutsche Zahlen (61 von 100) → 0.61 > 0.6 → NUMERIC"""
+        s = pd.Series(["1,5"] * 61 + ["irgendwas"] * 39)
+        assert ColumnParser.detect_column_type(s) == ColumnType.NUMERIC
+
+    def test_english_dot_61_percent_is_numeric(self):
+        """61% englische Punkt-Notation (61 von 100) → 0.61 > 0.6 → NUMERIC"""
+        s = pd.Series(["1.5"] * 61 + ["irgendwas"] * 39)
+        assert ColumnParser.detect_column_type(s) == ColumnType.NUMERIC
 
 
 class TestParseColumnToSeries:
