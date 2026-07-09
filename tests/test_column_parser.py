@@ -1,7 +1,6 @@
 """
 Tests für den ColumnParser — Typ-Erkennung, Datums- und Zahlen-Parsing.
 """
-import pytest
 import pandas as pd
 import numpy as np
 from column_parser import ColumnParser, ColumnType
@@ -325,6 +324,50 @@ class TestParseNumericColumn:
         assert pd.isna(result.iloc[0])
         assert pd.isna(result.iloc[1])
         assert result.iloc[2] == 1.5
+
+    def test_english_decimal_with_4_digits(self):
+        """Englische Dezimalzahl '1.2345' (4 Nachkommastellen) → 1.2345 (alter Bug: wurde als deutscher Tausenderpunkt gewertet)"""
+        s = pd.Series(["1.2345"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == 1.2345
+
+    def test_english_decimal_with_3_digits(self):
+        """Englische Dezimalzahl '1.000' (3 Nachkommastellen, keine Komma in der Spalte) → 1000.0
+        Hinweis: '1.000' allein ist ambig (1000 oder 1.000). Die Heuristik '3 Ziffern = Tausenderpunkt'
+        behandelt es als Tausenderpunkt, was in der Praxis für deutsche CSV-Exporte die richtige Wahl ist."""
+        s = pd.Series(["1.000"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == 1000.0
+
+    def test_german_thousands_dot_without_comma_in_german_column(self):
+        """'1.000' als deutscher Tausenderpunkt (weil andere Werte Komma haben) → 1000.0"""
+        s = pd.Series(["1.000", "2,5"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == 1000.0
+        assert result.iloc[1] == 2.5
+
+    def test_multi_dot_german_thousands(self):
+        """Mehrere Punkte wie '1.234.567' → deutsches Format erkannt → 1234567.0"""
+        s = pd.Series(["1.234.567"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == 1234567.0
+
+    def test_english_decimal_multiple_values(self):
+        """Rein englische Spalte mit mehreren Werten → korrekte floats"""
+        s = pd.Series(["1.2345", "2.6789", "3.14159"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == 1.2345
+        assert result.iloc[1] == 2.6789
+        assert result.iloc[2] == 3.14159
+
+    def test_mixed_german_column_with_english_like_value(self):
+        """Gemischte Spalte mit deutschem '1,5' und englischem '1.2345' → per-value: '1.2345' hat 4 Nachkommastellen → 1.2345, '1,5' → 1.5"""
+        s = pd.Series(["1.2345", "1,5"])
+        result = ColumnParser._parse_numeric_column(s)
+        # '1.2345' hat kein Komma und 4 Ziffern nach Punkt → kein Tausenderpunkt (\.\d{3}$ matched nicht)
+        assert result.iloc[0] == 1.2345
+        # '1,5' hat Komma → deutsches Format
+        assert result.iloc[1] == 1.5
 
 
 class TestParseDateColumn:

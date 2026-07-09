@@ -76,6 +76,35 @@ class TestFormatCell:
         result = format_cell(42, ColumnType.NUMERIC)
         assert result == "42"
 
+    def test_zero_value_returns_zero(self):
+        """0 → '0'"""
+        result = format_cell(0, ColumnType.NUMERIC)
+        assert result == "0"
+
+    def test_boolean_text_returns_str(self):
+        """True als TEXT → 'True'"""
+        result = format_cell(True, ColumnType.TEXT)
+        assert result == "True"
+
+    def test_empty_string_text_returns_empty(self):
+        """'' als TEXT → ''"""
+        result = format_cell("", ColumnType.TEXT)
+        assert result == ""
+
+    def test_nan_value_as_date_returns_empty(self):
+        """NaN als DATE → ''"""
+        assert format_cell(np.nan, ColumnType.DATE) == ""
+
+    def test_false_boolean_numeric_returns_str(self):
+        """False → 'False'"""
+        result = format_cell(False, ColumnType.NUMERIC)
+        assert result == "False"
+
+    def test_float_without_decimal_numeric(self):
+        """1.0 → '1.0'"""
+        result = format_cell(1.0, ColumnType.NUMERIC)
+        assert result == "1.0"
+
 
 # ---------------------------------------------------------------------------
 # _setup_locale Tests
@@ -234,6 +263,21 @@ class TestPlotData:
 
                 plot_data([self._make_mock_file("m")], Mock(bw=False, y0=False))
                 mock_ax.grid.assert_called_once_with(True)
+
+    def test_column_name_with_newline_escapes_replaced(self):
+        """\\n im Spaltennamen wird in echten Zeilenumbruch umgewandelt"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                col_x = ColumnResult(series=pd.Series([1.0, 2.0]), column_type=ColumnType.NUMERIC, column_name="Zeit\\nin s")
+                col_y = ColumnResult(series=pd.Series([10.0, 20.0]), column_type=ColumnType.NUMERIC, column_name="Temperatur")
+                pf = ProcessedCSVFile(filename="test", parsed_columns=[col_x, col_y])
+
+                plot_data([pf], Mock(bw=False, y0=False))
+                # "Zeit\\nin s" → "Zeit\nin s" → im Label ein echter Zeilenumbruch
+                mock_ax.set_xlabel.assert_called_once_with("Zeit\nin s", fontsize=8)
 
 
 # ---------------------------------------------------------------------------

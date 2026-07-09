@@ -1,8 +1,6 @@
 """
 Tests für den CSV-Parser — Datei-Einlesen und Spalten-Parsing.
 """
-import pytest
-import pandas as pd
 import os
 import tempfile
 from csv_parser import parse_csv_file, ProcessedCSVFile

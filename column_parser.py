@@ -179,7 +179,7 @@ class ColumnParser:
         Behandelt deutsche Dezimalkommas: "1,5" → 1.5
         Behandelt Tausendertrenner: "1.234,56" → 1234.56
         Behandelt Tausenderpunkte ohne Dezimalkomma: "1.000" → 1000.0
-        Englische Punkt-Notation: "1234.56" → 1234.56
+        Englische Punkt-Notation: "1234.56" → 1234.56, "1.2345" → 1.2345
         Ungültige Zahlen werden zu NaN
         """
         # Falls schon numeric: kein parsing nötig
@@ -197,8 +197,8 @@ class ColumnParser:
 
         # Fall 2: Kein Komma, aber Punkte → könnte Tausenderpunkt sein
         # "1.000" → "1000" (Tausenderpunkt), "1.5" → "1.5" (englische Dezimal)
-        # Heuristik: Wenn nach dem letzten Punkt 3+ Ziffern folgen → Tausenderpunkt
-        has_dot_no_comma = cleaned.str.contains(r'\.\d{3,}$', regex=True) & ~has_comma
+        # Heuristik: Wenn nach dem letzten Punkt genau 3 Ziffern folgen → Tausenderpunkt
+        has_dot_no_comma = cleaned.str.contains(r'\.\d{3}$', regex=True) & ~has_comma
         cleaned = cleaned.where(~has_dot_no_comma, cleaned.str.replace('.', '', regex=False))
 
         return pd.to_numeric(cleaned, errors='coerce')

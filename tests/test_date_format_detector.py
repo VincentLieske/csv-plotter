@@ -1,7 +1,6 @@
 """
 Tests für die Datumsformat-Erkennung (detect_dayfirst).
 """
-import pytest
 import pandas as pd
 from date_format_detector import detect_dayfirst
 
