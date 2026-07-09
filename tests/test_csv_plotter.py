@@ -11,7 +11,7 @@ from column_parser import ColumnType, ColumnResult
 from csv_parser import ProcessedCSVFile
 
 import csv_plotter
-from csv_plotter import format_cell, _setup_locale, plot_data, export_tables, open_pdfs, main, parse_csv_file
+from csv_plotter import format_cell, _setup_locale, plot_data, export_tables, open_pdfs, main
 
 
 # ---------------------------------------------------------------------------
