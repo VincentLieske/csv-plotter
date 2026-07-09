@@ -9,7 +9,7 @@ from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
 from column_parser import ColumnType, ColumnResult
 from csv_parser import ProcessedCSVFile
-from csv_plotter import format_cell, _setup_locale, plot_data, export_tables, open_pdfs, main
+from csv_plotter import format_cell, _setup_locale, plot_data, export_tables, open_pdfs, main, _unescape_newlines
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +115,39 @@ class TestFormatCell:
         """Sehr lange Dezimalzahl → korrekt formatiert"""
         result = format_cell(1234567890.123456789, ColumnType.NUMERIC)
         assert "1234567890" in result
+
+
+# ---------------------------------------------------------------------------
+# _unescape_newlines Tests
+# ---------------------------------------------------------------------------
+
+class TestUnescapeNewlines:
+    """Tests für _unescape_newlines"""
+
+    def test_escaped_newline_converted(self):
+        """\\n → \n"""
+        result = _unescape_newlines("Zeit\\nin s")
+        assert result == "Zeit\nin s"
+
+    def test_no_escaped_newline_unchanged(self):
+        """Text ohne \\n bleibt unverändert"""
+        result = _unescape_newlines("Zeit in s")
+        assert result == "Zeit in s"
+
+    def test_none_returns_empty(self):
+        """None → ''"""
+        result = _unescape_newlines(None)
+        assert result == ""
+
+    def test_multiple_escaped_newlines(self):
+        """Mehrere \\n werden alle konvertiert"""
+        result = _unescape_newlines("Zeile1\\nZeile2\\nZeile3")
+        assert result == "Zeile1\nZeile2\nZeile3"
+
+    def test_real_newline_unchanged(self):
+        """Echter Newline bleibt erhalten"""
+        result = _unescape_newlines("Zeit\nin s")
+        assert result == "Zeit\nin s"
 
 
 # ---------------------------------------------------------------------------
@@ -240,18 +273,37 @@ class TestPlotData:
                 mock_ax.xaxis.set_major_locator.assert_called_once()
                 mock_fig.autofmt_xdate.assert_called_once()
 
-    def test_date_x_flag_forces_date_format(self):
-        """--date-x erzwingt Datumsformat auch bei NUMERIC Spalte"""
+    def test_date_x_flag_falls_back_to_numeric_for_pure_numbers(self, capsys):
+        """--date-x mit rein numerischen Werten → Warnung + numerische Darstellung"""
         with patch('matplotlib.pyplot.subplots') as mock_subplots:
             with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
                 mock_fig, mock_ax = MagicMock(), MagicMock()
                 mock_subplots.return_value = (mock_fig, mock_ax)
 
-                # NUMERIC X-Spalte, aber --date-x soll Datumsformat erzwingen
-                plot_data([self._make_mock_file("m", x_type=ColumnType.NUMERIC)],
+                # NUMERIC X-Spalte mit rein numerischen Werten, --date-x soll Warnung erzeugen
+                plot_data([self._make_mock_file("m", x_type=ColumnType.NUMERIC, x_values=[1.0, 2.0, 3.0])],
                           Mock(bw=False, y0=False, date_x=True))
 
-                # Datumsformat sollte trotzdem gesetzt werden
+                # Datumsformat sollte NICHT gesetzt werden (Warnung wurde ausgegeben)
+                mock_ax.xaxis.set_major_formatter.assert_not_called()
+                mock_ax.xaxis.set_major_locator.assert_not_called()
+        
+        # Prüfe Warnung
+        captured = capsys.readouterr()
+        assert "Warnung" in captured.err or "nicht als Datum formatiert werden" in captured.err
+
+    def test_date_x_flag_converts_convertible_strings(self):
+        """--date-x konvertiert X-Spalte mit Datums-ähnlichen Strings"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                # X-Spalte mit Datums-ähnlichen Strings
+                plot_data([self._make_mock_file("m", x_type=ColumnType.TEXT, x_values=["2024-01-01", "2024-01-02"])],
+                          Mock(bw=False, y0=False, date_x=True))
+
+                # Datumsformat sollte gesetzt werden (konnte konvertiert werden)
                 mock_ax.xaxis.set_major_formatter.assert_called_once()
                 mock_ax.xaxis.set_major_locator.assert_called_once()
 

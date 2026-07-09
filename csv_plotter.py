@@ -79,6 +79,25 @@ def _setup_locale(args):
     return use_locale_numeric, original_locale
 
 
+def _restore_locale(original_locale):
+    """Stellt das ursprüngliche Locale wieder her."""
+    try:
+        locale.setlocale(locale.LC_NUMERIC, original_locale)
+    except Exception:
+        pass
+
+
+def _unescape_newlines(text: str) -> str:
+    """
+    Wandelt escaped Newlines (\\n) in echte Newlines um.
+    
+    Dies wird für Spaltennamen verwendet, die in CSV-Dateien escaped stehen können.
+    """
+    if text is None:
+        return ""
+    return str(text).replace("\\n", "\n")
+
+
 def plot_data(processed_files, args):
     """
     Erstellt ein Scatterplot mit Linien aus den geparsten CSV-Daten.
@@ -141,19 +160,50 @@ def plot_data(processed_files, args):
         ax.plot(x_data, y_data, color=color, linestyle='--')
 
     # Wenn X-Achse Datum ist: formatiere schön mit Datumsformat
+    # Bei --date-x: prüfe ob die X-Daten als Datum formatiert werden können
     if x_has_date:
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m.%Y'))
-        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-        fig.autofmt_xdate()  # Dreht Labels automatisch für Lesbarkeit
+        # Prüfe ob die X-Daten datetime-kompatibel sind
+        x_is_datetime = pd.api.types.is_datetime64_any_dtype(first_file.parsed_columns[0].series)
+        if not x_is_datetime:
+            # Prüfe, ob die X-Spalte NUMERIC ist (dann ist --date-x wahrscheinlich ein Fehler)
+            x_is_numeric = pd.api.types.is_numeric_dtype(first_file.parsed_columns[0].series)
+            if x_is_numeric:
+                # NUMERIC X-Spalte mit --date-x ist wahrscheinlich ein Fehler
+                print(f"Warnung: --date-x angegeben, aber X-Spalte '{first_file.filename}' ist numerisch. Numerische Darstellung wird verwendet.", file=sys.stderr)
+                x_has_date = False
+            else:
+                # Versuche die X-Daten als Datum zu konvertieren (für TEXT-Spalten)
+                try:
+                    # Konvertiere die X-Daten in datetime
+                    for processed_data in processed_files:
+                        x_series = processed_data.parsed_columns[0].series
+                        if not pd.api.types.is_datetime64_any_dtype(x_series):
+                            converted = pd.to_datetime(x_series, errors='coerce')
+                            if converted.notna().any():
+                                # Erfolgreich konvertiert - verwende konvertierte Daten
+                                processed_data.parsed_columns[0].series = converted
+                            else:
+                                # Konnte nicht konvertiert werden - deaktiviere Datumsformat
+                                print(f"Warnung: --date-x angegeben, aber X-Spalte '{processed_data.filename}' kann nicht als Datum formatiert werden. Numerische Darstellung wird verwendet.", file=sys.stderr)
+                                x_has_date = False
+                                break
+                except Exception as e:
+                    print(f"Warnung: --date-x Fehler bei Datumskonvertierung: {e}. Numerische Darstellung wird verwendet.", file=sys.stderr)
+                    x_has_date = False
+        
+        if x_has_date:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m.%Y'))
+            ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+            fig.autofmt_xdate()  # Dreht Labels automatisch für Lesbarkeit
 
     # Hole Achsenbeschriftungen von der ersten Datei
     # (annahme: alle CSV-Dateien haben gleiche Spalten)
     try:
-        x_label = first_file.parsed_columns[0].column_name.replace("\\n", "\n")
+        x_label = _unescape_newlines(first_file.parsed_columns[0].column_name)
     except Exception:
         x_label = ""
     try:
-        y_label = first_file.parsed_columns[1].column_name.replace("\\n", "\n")
+        y_label = _unescape_newlines(first_file.parsed_columns[1].column_name)
     except Exception:
         y_label = ""
 
@@ -325,10 +375,7 @@ def export_tables(processed_files, args):
 
     finally:
         # Locale immer zurücksetzen
-        try:
-            locale.setlocale(locale.LC_NUMERIC, original_locale)
-        except Exception:
-            pass
+        _restore_locale(original_locale)
 
 
 def open_pdfs(pdf_files):
