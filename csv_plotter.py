@@ -47,6 +47,8 @@ def parse_args():
                         help='PDFs nach Erstellung nicht automatisch öffnen')
     parser.add_argument('--table-decimal-dot', action='store_true',
                         help='Erzwingt Dezimalpunkt (.) in Tabellen-PDFs (statt lokaler Komma-Formatierung)')
+    parser.add_argument('--date-x', action='store_true',
+                        help='Erzwingt Datumsformat für X-Achse (erste Spalte)')
     parser.add_argument('-?', '--help', action='help', help='Diese Hilfe anzeigen und beenden')
     return parser.parse_args()
 
@@ -83,7 +85,7 @@ def plot_data(processed_files, args):
 
     - Bei mehreren CSV-Dateien: alle in einem Diagramm zum Vergleich
     - X-Achse: korrekt skaliert nach Zahlenwert (nicht äquidistant wie Excel)
-    - Datumsachse: automatisch erkannt und formatiert
+    - Datumsachse: automatisch erkannt und formatiert (oder mit --date-x erzwungen)
     - Schwarz-Weiß-Modus: mit verschiedenen Symbolen für Drucke
 
     Returns:
@@ -111,7 +113,8 @@ def plot_data(processed_files, args):
     markers = ['o', 's', '^', 'x', 'D', 'v', '*', 'P', 'H']
 
     # Flag ob mindestens eine X-Spalte ein Datum ist
-    x_has_date = False
+    # --date-x erzwingt Datumsformat für X-Achse
+    x_has_date = args.date_x
 
     # Plotte jede CSV-Datei
     for i, processed_data in enumerate(processed_files):
@@ -121,7 +124,7 @@ def plot_data(processed_files, args):
         x_data = processed_data.parsed_columns[0].series
         y_data = processed_data.parsed_columns[1].series
 
-        # Merke: ist die X-Spalte eine Datumsspalte?
+        # Merke: ist die X-Spalte eine Datumsspalte? (wenn nicht durch --date-x erzwungen)
         if not x_has_date and processed_data.parsed_columns[0].column_type == ColumnType.DATE:
             x_has_date = True
 
@@ -268,7 +271,15 @@ def export_tables(processed_files, args):
 
             # Teile große Tabellen in mehrere Subtabellen (max 30 Zeilen pro Subtabelle)
             max_rows_per_col = 30
-            num_rows = min(len(col.series) for col in cols)
+            col_lengths = [len(col.series) for col in cols]
+            num_rows = min(col_lengths)
+            
+            # Warnung bei unterschiedlich langen Spalten
+            if len(set(col_lengths)) > 1:
+                max_len = max(col_lengths)
+                min_len = min(col_lengths)
+                print(f"Warnung: Spalten haben unterschiedliche Längen ({min_len}-{max_len}). Überschüssige Werte werden ignoriert.", file=sys.stderr)
+            
             num_subtables = math.ceil(num_rows / max_rows_per_col)
             subtable_rows = []
 

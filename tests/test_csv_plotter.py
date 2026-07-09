@@ -96,6 +96,26 @@ class TestFormatCell:
         result = format_cell(1.0, ColumnType.NUMERIC)
         assert result == "1.0"
 
+    def test_inf_value_returns_inf(self):
+        """float('inf') → 'inf'"""
+        result = format_cell(float('inf'), ColumnType.NUMERIC)
+        assert result == "inf"
+
+    def test_neg_inf_value_returns_neg_inf(self):
+        """float('-inf') → '-inf'"""
+        result = format_cell(float('-inf'), ColumnType.NUMERIC)
+        assert result == "-inf"
+
+    def test_pd_na_value_returns_empty(self):
+        """pd.NA → ''"""
+        result = format_cell(pd.NA, ColumnType.NUMERIC)
+        assert result == ""
+
+    def test_large_number_with_many_decimals(self):
+        """Sehr lange Dezimalzahl → korrekt formatiert"""
+        result = format_cell(1234567890.123456789, ColumnType.NUMERIC)
+        assert "1234567890" in result
+
 
 # ---------------------------------------------------------------------------
 # _setup_locale Tests
@@ -220,6 +240,21 @@ class TestPlotData:
                 mock_ax.xaxis.set_major_locator.assert_called_once()
                 mock_fig.autofmt_xdate.assert_called_once()
 
+    def test_date_x_flag_forces_date_format(self):
+        """--date-x erzwingt Datumsformat auch bei NUMERIC Spalte"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                # NUMERIC X-Spalte, aber --date-x soll Datumsformat erzwingen
+                plot_data([self._make_mock_file("m", x_type=ColumnType.NUMERIC)],
+                          Mock(bw=False, y0=False, date_x=True))
+
+                # Datumsformat sollte trotzdem gesetzt werden
+                mock_ax.xaxis.set_major_formatter.assert_called_once()
+                mock_ax.xaxis.set_major_locator.assert_called_once()
+
     def test_labels_are_set_from_column_names(self):
         """Achsenlabels werden aus Spaltennamen übernommen"""
         with patch('matplotlib.pyplot.subplots') as mock_subplots:
@@ -329,6 +364,21 @@ class TestExportTables:
         assert result == ["a_tabelle.pdf", "b_tabelle.pdf"]
         assert mock_doc_template.call_count == 2
         assert mock_doc_instance.build.call_count == 2
+
+    def test_uneven_column_lengths_shows_warning(self, capsys):
+        """Unterschiedlich lange Spalten → Warnung ausgeben"""
+        col_x = ColumnResult(series=pd.Series([1.0, 2.0, 3.0]), column_type=ColumnType.NUMERIC, column_name="X")
+        col_y = ColumnResult(series=pd.Series([10.0, 20.0]), column_type=ColumnType.NUMERIC, column_name="Y")
+        pf = ProcessedCSVFile(filename="test", parsed_columns=[col_x, col_y])
+
+        with patch('csv_plotter.SimpleDocTemplate') as mock_doc_template:
+            mock_doc_instance = MagicMock()
+            mock_doc_template.return_value = mock_doc_instance
+            with patch('locale.setlocale'), patch('locale.getlocale', return_value=('german', 'cp1252')):
+                result = export_tables([pf], Mock(table_decimal_dot=False))
+
+        assert "unterschiedliche Längen" in capsys.readouterr().err
+        assert result == ["test_tabelle.pdf"]
 
 
 # ---------------------------------------------------------------------------

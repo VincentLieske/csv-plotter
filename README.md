@@ -12,7 +12,7 @@ Dieses Python-Skript hilft dir, Messdaten aus CSV-Dateien zu visualisieren. Es e
 ## Vorteile
 
 - **Keine Dateisperrung durch SumatraPDF**: Anders als viele PDF-Viewer sperrt SumatraPDF die Dateien nicht. So kannst du das Skript erneut laufen lassen und aktualisierte PDFs erstellen, ohne die Fenster zu schließen. Das macht iterative Anpassungen und Ausdrucke viel einfacher.
-- **Korrekte X-Achsen-Skalierung**: Anders als Excel, das Messpunkte oft äquidistant auf der X-Achse platziert, positioniert dieses Skript die Punkte entsprechend ihrem tatsächlichen Zahlenwert. Bei Datumsangaben klappt das super mit dem Parameter `--date-x`, wodurch Zeitreihen richtig dargestellt werden.
+- **Korrekte X-Achsen-Skalierung**: Anders als Excel, das Messpunkte oft äquidistant auf der X-Achse platziert, positioniert dieses Skript die Punkte entsprechend ihrem tatsächlichen Zahlenwert. Bei Datumsangaben wird das Format automatisch erkannt und Zeitreihen richtig dargestellt. Mit `--date-x` kann das Format auch explizit erzwungen werden.
 
 ## Voraussetzungen
 
@@ -43,6 +43,10 @@ python csv_plotter.py <CSV-Datei1> [<CSV-Datei2> ...] [Optionen]
   ```
   python csv_plotter.py Messung4.csv Messung4b.csv --y0 --bw
   ```
+- Datumsformat für X-Achse erzwingen:
+  ```
+  python csv_plotter.py Messung4.csv --date-x
+  ```
 
 ## Command-Line-Parameter
 
@@ -50,6 +54,7 @@ python csv_plotter.py <CSV-Datei1> [<CSV-Datei2> ...] [Optionen]
 - `--y0`: Zeigt die Y=0-Linie und setzt die Y-Achse auf mindestens 0. Praktisch wenn die Daten die 0 sonst nicht enthalten.
 - `--bw`: Aktiviert Schwarz-Weiß-Darstellung mit verschiedenen Markern. Damit sieht's auf einem Schwarz-Weiß-Drucker besser aus – viel klarer als Graustufen-Konvertierung.
 - `--no-pdf-view`: Verhindert automatisches Öffnen der PDFs nach der Erstelung. Nützlich für Skripte oder Server ohne GUI.
+- `--date-x`: Erzwingt Datumsformat für die X-Achse (erste Spalte). Nützlich wenn die automatische Erkennung versagt oder wenn die X-Spalte wie ein Datum aussieht (z.B. "01.01.2024") aber fälschlicherweise als Zahl erkannt wurde.
 - `-?` oder `--help`: Zeigt die Hilfe an und beendet das Programm.
 
 ## Workflow zur Datenerstellung
@@ -82,9 +87,10 @@ python csv_plotter.py <CSV-Datei1> [<CSV-Datei2> ...] [Optionen]
 ## Hinweise
 
 - Das Skript versucht das Datumsformat automatisch zu erkennen und passt Datumsformate entsprechend an.
-- Bei Problemen mit der Datumsinterpretation überprüfe das Format in deinen CSVs.
+- Bei Problemen mit der Datumsinterpretation überprüfe das Format in deinen CSVs oder verwende `--date-x`.
 - **Bekannte Einschränkung:** Gemischte Datumsformate innerhalb einer Spalte (z.B. ISO `2024-03-15` neben deutschem `DD.MM.YYYY`) werden nicht korrekt erkannt. Die ISO-Werte werden dann zu `NaT` (Not a Time). In der Praxis kommen gemischte Formate extrem selten vor.
 - Bei großen Datensätzen teilt das Skript Tabellen automatisch in mehrere Spalten auf.
+- **Hinweis:** Unterschiedlich lange Spalten werden mit einer Warnung versehen. Die kürzere Länge wird verwendet, überschüssige Werte werden ignoriert.
 
 ## Lizenz
 
@@ -119,4 +125,4 @@ git commit --no-verify
 
 ## Beiträge
 
-Mach mit und hilf, das Projekt zu verbessern! Ich freue mich über deine Ideen, Bug-Reports, Feature-Vorschläge und Pull Requests auf GitHub. 
+Mach mit und hilf, das Projekt zu verbessern! Ich freue mich über deine Ideen, Bug-Reports, Feature-Vorschläge und Pull Requests auf GitHub.
