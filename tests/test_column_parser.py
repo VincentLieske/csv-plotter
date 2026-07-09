@@ -18,7 +18,6 @@ class TestDetectColumnType:
         """Integer Series → NUMERIC"""
         s = pd.Series([1, 2, 3])
         assert ColumnParser.detect_column_type(s) == ColumnType.NUMERIC
-
     def test_date_format_dd_mm_yyyy(self):
         """Deutsches Datumsformat DD.MM.YYYY → DATE"""
         s = pd.Series(["01.01.2024", "15.03.2024", "24.12.2024"])
@@ -369,6 +368,56 @@ class TestParseNumericColumn:
         # '1,5' hat Komma → deutsches Format
         assert result.iloc[1] == 1.5
 
+    def test_negative_german_number(self):
+        """Negative deutsche Zahl '-1,5' → -1.5"""
+        s = pd.Series(["-1,5", "-2,3"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == -1.5
+        assert result.iloc[1] == -2.3
+
+    def test_negative_german_thousands(self):
+        """Negative deutsche Zahl mit Tausenderpunkt '-1.234,56' → -1234.56"""
+        s = pd.Series(["-1.234,56"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == -1234.56
+
+    def test_negative_english_number(self):
+        """Negative englische Zahl '-1.5' → -1.5"""
+        s = pd.Series(["-1.5", "-1234.56"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == -1.5
+        assert result.iloc[1] == -1234.56
+
+    def test_negative_integer(self):
+        """Negative ganze Zahl '-42' → -42.0"""
+        s = pd.Series(["-42"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == -42.0
+
+    def test_double_dot_still_parses(self):
+        """Doppelter Punkt '1..234,56' → 1234.56 (doppelte Punkte werden einfach entfernt)"""
+        s = pd.Series(["1..234,56"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == 1234.56
+
+    def test_comma_without_decimals(self):
+        """'10,' (Komma ohne Dezimalstellen) → 10.0"""
+        s = pd.Series(["10,"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == 10.0
+
+    def test_negative_thousands_dot_without_comma(self):
+        """Negativer Tausenderpunkt '-1.000' → -1000.0"""
+        s = pd.Series(["-1.000"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == -1000.0
+
+    def test_negative_multi_thousands_dot(self):
+        """Negativer mehrfacher Tausenderpunkt '-1.234.567' → -1234567.0"""
+        s = pd.Series(["-1.234.567"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == -1234567.0
+
 
 class TestParseDateColumn:
     """Tests für die Datums-Parsing-Funktion"""
@@ -425,6 +474,25 @@ class TestParseDateColumn:
         # ISO in DD.MM-Umgebung wird zu NaT (akzeptabler Trade-off)
         assert pd.isna(result.iloc[1])
         assert result.iloc[2] == pd.Timestamp("2024-12-24")
+
+    def test_date_with_whitespace(self):
+        """Datum mit Whitespace → korrekt geparst"""
+        s = pd.Series([" 01.01.2024 ", " 15.03.2024 "])
+        result = ColumnParser._parse_date_column(s)
+        assert result.iloc[0] == pd.Timestamp("2024-01-01")
+        assert result.iloc[1] == pd.Timestamp("2024-03-15")
+
+    def test_invalid_leap_year_returns_nat(self):
+        """29.02.2023 (kein Schaltjahr) → NaT"""
+        s = pd.Series(["29.02.2023"])
+        result = ColumnParser._parse_date_column(s)
+        assert pd.isna(result.iloc[0])
+
+    def test_valid_leap_year_parsed(self):
+        """29.02.2024 (Schaltjahr) → korrekt geparst"""
+        s = pd.Series(["29.02.2024"])
+        result = ColumnParser._parse_date_column(s)
+        assert result.iloc[0] == pd.Timestamp("2024-02-29")
 
 
 class TestParseColumnToSeries:

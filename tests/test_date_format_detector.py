@@ -77,3 +77,18 @@ class TestDetectDayfirst:
         """Ungültige Teile (Buchstaben) werden übersprungen"""
         s = pd.Series(["24.12.2024", "abc.def.ghi", "15.03.2024"])
         assert detect_dayfirst(s) is True
+
+    def test_both_components_12_fallback_german(self):
+        """Beide Komponenten 12 (12.12.2024) → keine Evidenz → Fallback True"""
+        s = pd.Series(["12.12.2024", "12.12.2025"])
+        assert detect_dayfirst(s) is True
+
+    def test_iso_and_ambiguous_mixed(self):
+        """ISO + ambige Daten → nur ambige zählen → Fallback True"""
+        s = pd.Series(["2024-01-05", "01-02-2026"])
+        assert detect_dayfirst(s) is True
+
+    def test_iso_and_us_mixed(self):
+        """ISO + US-Datum → US-Datum zählt → dayfirst=False"""
+        s = pd.Series(["2024-01-05", "01.22.2024"])
+        assert detect_dayfirst(s) is False

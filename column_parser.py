@@ -172,6 +172,48 @@ class ColumnParser:
         return pd.to_datetime(column_values, dayfirst=dayfirst, errors='coerce')
 
     @staticmethod
+    def _is_thousands_dot(s: str) -> bool:
+        """
+        Prüft, ob ein Punkt als Tausenderpunkt zu werten ist.
+        
+        Heuristik: Wenn dem letzten Punkt genau 3 Ziffern folgen, handelt es sich
+        um einen Tausenderpunkt (z.B. "1.000", "1.234.567").
+        Ein Punkt mit != 3 folgenden Ziffern ist ein Dezimalpunkt (z.B. "1.5", "1.2345").
+        """
+        return bool(re.search(r'\.\d{3}$', s))
+
+    @staticmethod
+    def _parse_single_numeric(value: str) -> float:
+        """
+        Parst einen einzelnen String-Wert in einen float.
+
+        Unterstützte Formate:
+        - Deutsch mit Komma: "1,5" → 1.5, "-1,5" → -1.5
+        - Deutsch mit Tausenderpunkt + Komma: "1.234,56" → 1234.56
+        - Deutsch mit Tausenderpunkt ohne Komma: "1.000" → 1000.0, "1.234.567" → 1234567.0
+        - Englisch mit Punkt: "1.5" → 1.5, "1234.56" → 1234.56, "-1.5" → -1.5
+        - Integer: "42" → 42.0
+
+        Returns:
+            float oder NaN bei ungültigen Werten
+        """
+        try:
+            value_str = str(value)
+            if not value_str or value_str == 'nan':
+                return float('nan')
+            if ',' in value_str:
+                # Deutsches Format mit Komma (z.B. "1,5" oder "-1,5")
+                return float(value_str.replace('.', '').replace(',', '.'))
+            elif '.' in value_str and ColumnParser._is_thousands_dot(value_str):
+                # Tausenderpunkt ohne Komma (z.B. "1.000", "-1.000")
+                return float(value_str.replace('.', ''))
+            else:
+                # Normales Integer, englisches Float oder ungültig
+                return float(value_str)
+        except (ValueError, TypeError):
+            return float('nan')
+
+    @staticmethod
     def _parse_numeric_column(column_values: pd.Series) -> pd.Series:
         """
         Konvertiert eine Spalte in float64 Format.
@@ -180,25 +222,14 @@ class ColumnParser:
         Behandelt Tausendertrenner: "1.234,56" → 1234.56
         Behandelt Tausenderpunkte ohne Dezimalkomma: "1.000" → 1000.0
         Englische Punkt-Notation: "1234.56" → 1234.56, "1.2345" → 1.2345
-        Ungültige Zahlen werden zu NaN
+        Negative Zahlen: "-1,5" → -1.5
+        Ungültige Werte werden zu NaN
         """
         # Falls schon numeric: kein parsing nötig
         if pd.api.types.is_numeric_dtype(column_values):
             return column_values
 
-        # Sonst: String cleaning
+        # String-Werte trimmen und pro Zelle parsen
         cleaned = column_values.astype(str).str.strip()
-
-        # Fall 1: Komma vorhanden → deutsches Format
-        # "1,5" → "1.5", "1.234,56" → "1234.56"
-        has_comma = cleaned.str.contains(',', regex=False)
-        cleaned = cleaned.where(~has_comma, cleaned.str.replace('.', '', regex=False))
-        cleaned = cleaned.str.replace(',', '.', regex=False)
-
-        # Fall 2: Kein Komma, aber Punkte → könnte Tausenderpunkt sein
-        # "1.000" → "1000" (Tausenderpunkt), "1.5" → "1.5" (englische Dezimal)
-        # Heuristik: Wenn nach dem letzten Punkt genau 3 Ziffern folgen → Tausenderpunkt
-        has_dot_no_comma = cleaned.str.contains(r'\.\d{3}$', regex=True) & ~has_comma
-        cleaned = cleaned.where(~has_dot_no_comma, cleaned.str.replace('.', '', regex=False))
-
-        return pd.to_numeric(cleaned, errors='coerce')
+        result = cleaned.apply(ColumnParser._parse_single_numeric)
+        return result

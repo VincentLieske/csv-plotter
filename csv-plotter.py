@@ -45,8 +45,8 @@ def parse_args():
                         help='Schwarz-Weiß-Darstellung (mit verschiedenen Symbolen statt Farben)')
     parser.add_argument('--no-pdf-view', action='store_true',
                         help='PDFs nach Erstellung nicht automatisch öffnen')
-    parser.add_argument('--force-dot', action='store_true',
-                        help='Erzwingt Dezimalpunkt (.) statt lokaler Einstellung')
+    parser.add_argument('--table-decimal-dot', action='store_true',
+                        help='Erzwingt Dezimalpunkt (.) in Tabellen-PDFs (statt lokaler Komma-Formatierung)')
     parser.add_argument('-?', '--help', action='help', help='Diese Hilfe anzeigen und beenden')
     return parser.parse_args()
 
@@ -62,14 +62,14 @@ def _setup_locale(args):
     """
     use_locale_numeric = False
     original_locale = locale.getlocale(locale.LC_NUMERIC)
-    if not args.force_dot:
+    if not args.table_decimal_dot:
         try:
             locale.setlocale(locale.LC_NUMERIC, '')
             use_locale_numeric = True
         except Exception as e:
             print(f"Warnung: Konnte System-Locale nicht setzen: {e}", file=sys.stderr)
     else:
-        # Bei --force-dot: explizit C-Locale setzen für Punkt als Dezimaltrenner
+        # Bei --table-decimal-dot: explizit C-Locale setzen für Punkt als Dezimaltrenner
         try:
             locale.setlocale(locale.LC_NUMERIC, 'C')
         except Exception as e:
@@ -207,6 +207,9 @@ def format_cell(value, col_type: ColumnType, use_locale_numeric: bool = False) -
             return format(value, 'n')  # 'n' = locale-aware
         except Exception:
             pass
+    # TEXT-Werte: Whitespace trimmen (konsistent mit column_parser.py)
+    if col_type == ColumnType.TEXT:
+        return str(value).strip()
     return str(value)
 
 

@@ -66,10 +66,10 @@ class TestFormatCell:
         assert isinstance(result, str)
         assert len(result) > 0
 
-    def test_text_value(self):
-        """Text → str(value)"""
+    def test_text_value_stripped(self):
+        """Text → str(value) mit getrimmtem Whitespace"""
         result = format_cell("  Hallo Welt  ", ColumnType.TEXT)
-        assert result == "  Hallo Welt  "
+        assert result == "Hallo Welt"
 
     def test_integer_numeric(self):
         """Integer → str(integer)"""
@@ -113,18 +113,18 @@ class TestFormatCell:
 class TestSetupLocale:
     """Tests für _setup_locale"""
 
-    def test_force_dot_uses_c_locale(self):
-        """--force-dot → use_locale_numeric=False"""
+    def test_table_decimal_dot_uses_c_locale(self):
+        """--table-decimal-dot → use_locale_numeric=False"""
         args = Mock()
-        args.force_dot = True
+        args.table_decimal_dot = True
         use_locale, original = _setup_locale(args)
         assert use_locale is False
         assert isinstance(original, tuple)
 
-    def test_no_force_dot_tries_user_locale(self):
-        """Ohne --force-dot → use_locale_numeric kann True sein"""
+    def test_no_table_decimal_dot_tries_user_locale(self):
+        """Ohne --table-decimal-dot → use_locale_numeric kann True sein"""
         args = Mock()
-        args.force_dot = False
+        args.table_decimal_dot = False
         use_locale, original = _setup_locale(args)
         assert isinstance(use_locale, bool)
         assert isinstance(original, tuple)
@@ -296,7 +296,7 @@ class TestExportTables:
         """Datei ohne Spalten → übersprungen (kein PDF)"""
         mock_file = Mock(filename="leer", parsed_columns=[])
         with patch.object(_csv_plotter, 'SimpleDocTemplate') as mock_doc:
-            result = export_tables([mock_file], Mock(force_dot=False))
+            result = export_tables([mock_file], Mock(table_decimal_dot=False))
             assert result == []
             mock_doc.assert_not_called()
 
@@ -310,7 +310,7 @@ class TestExportTables:
             mock_doc_instance = MagicMock()
             mock_doc_template.return_value = mock_doc_instance
             with patch('locale.setlocale'), patch('locale.getlocale', return_value=('german', 'cp1252')):
-                result = export_tables([pf], Mock(force_dot=False))
+                result = export_tables([pf], Mock(table_decimal_dot=False))
 
         assert result == ["test_tabelle.pdf"]
         mock_doc_template.assert_called_once()
@@ -333,7 +333,7 @@ class TestExportTables:
             mock_doc_instance = MagicMock()
             mock_doc_template.return_value = mock_doc_instance
             with patch('locale.setlocale'), patch('locale.getlocale', return_value=('german', 'cp1252')):
-                result = export_tables(files, Mock(force_dot=False))
+                result = export_tables(files, Mock(table_decimal_dot=False))
 
         assert result == ["a_tabelle.pdf", "b_tabelle.pdf"]
         assert mock_doc_template.call_count == 2
