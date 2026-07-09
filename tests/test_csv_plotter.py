@@ -9,8 +9,6 @@ from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
 from column_parser import ColumnType, ColumnResult
 from csv_parser import ProcessedCSVFile
-
-import csv_plotter
 from csv_plotter import format_cell, _setup_locale, plot_data, export_tables, open_pdfs, main
 
 
@@ -288,7 +286,7 @@ class TestExportTables:
     def test_empty_columns_skipped(self):
         """Datei ohne Spalten → übersprungen (kein PDF)"""
         mock_file = Mock(filename="leer", parsed_columns=[])
-        with patch.object(csv_plotter, 'SimpleDocTemplate') as mock_doc:
+        with patch('csv_plotter.SimpleDocTemplate') as mock_doc:
             result = export_tables([mock_file], Mock(table_decimal_dot=False))
             assert result == []
             mock_doc.assert_not_called()
@@ -299,7 +297,7 @@ class TestExportTables:
         col_y = ColumnResult(series=pd.Series([10.0, 20.0]), column_type=ColumnType.NUMERIC, column_name="Y")
         pf = ProcessedCSVFile(filename="test", parsed_columns=[col_x, col_y])
 
-        with patch.object(csv_plotter, 'SimpleDocTemplate') as mock_doc_template:
+        with patch('csv_plotter.SimpleDocTemplate') as mock_doc_template:
             mock_doc_instance = MagicMock()
             mock_doc_template.return_value = mock_doc_instance
             with patch('locale.setlocale'), patch('locale.getlocale', return_value=('german', 'cp1252')):
@@ -322,7 +320,7 @@ class TestExportTables:
             ])
         ]
 
-        with patch.object(csv_plotter, 'SimpleDocTemplate') as mock_doc_template:
+        with patch('csv_plotter.SimpleDocTemplate') as mock_doc_template:
             mock_doc_instance = MagicMock()
             mock_doc_template.return_value = mock_doc_instance
             with patch('locale.setlocale'), patch('locale.getlocale', return_value=('german', 'cp1252')):
@@ -390,10 +388,10 @@ class TestMain:
         ])
 
         with patch.object(sys, 'argv', ['csv_plotter.py', str(csv_file)]):
-            with patch.object(csv_plotter, 'parse_csv_file', return_value=mock_file) as mock_parse:
-                with patch.object(csv_plotter, 'plot_data', return_value="plot.pdf"):
-                    with patch.object(csv_plotter, 'export_tables', return_value=["tab.pdf"]):
-                        with patch.object(csv_plotter, 'open_pdfs') as mock_open:
+            with patch('csv_plotter.parse_csv_file', return_value=mock_file) as mock_parse:
+                with patch('csv_plotter.plot_data', return_value="plot.pdf"):
+                    with patch('csv_plotter.export_tables', return_value=["tab.pdf"]):
+                        with patch('csv_plotter.open_pdfs') as mock_open:
                             main()
 
         mock_parse.assert_called_once_with(str(csv_file))
@@ -412,7 +410,7 @@ class TestMain:
         csv_file.write_text("X;Y\n1,5;10,2\n")
 
         with patch.object(sys, 'argv', ['csv_plotter.py', str(csv_file)]):
-            with patch.object(csv_plotter, 'parse_csv_file', side_effect=ValueError("Fehler")):
+            with patch('csv_plotter.parse_csv_file', side_effect=ValueError("Fehler")):
                 with pytest.raises(SystemExit) as exc:
                     main()
         assert "Fehler" in capsys.readouterr().err
@@ -424,8 +422,8 @@ class TestMain:
         csv_file.write_text("X;Y\n1,5;10,2\n")
 
         with patch.object(sys, 'argv', ['csv_plotter.py', str(csv_file)]):
-            with patch.object(csv_plotter, 'parse_csv_file', return_value=MagicMock()):
-                with patch.object(csv_plotter, 'plot_data', side_effect=ValueError("Plot kaputt")):
+            with patch('csv_plotter.parse_csv_file', return_value=MagicMock()):
+                with patch('csv_plotter.plot_data', side_effect=ValueError("Plot kaputt")):
                     with pytest.raises(SystemExit) as exc:
                         main()
         assert "Plot kaputt" in capsys.readouterr().err
@@ -437,9 +435,9 @@ class TestMain:
         csv_file.write_text("X;Y\n1,5;10,2\n")
 
         with patch.object(sys, 'argv', ['csv_plotter.py', '--no-pdf-view', str(csv_file)]):
-            with patch.object(csv_plotter, 'parse_csv_file'):
-                with patch.object(csv_plotter, 'plot_data', return_value="plot.pdf"):
-                    with patch.object(csv_plotter, 'export_tables', return_value=[]):
-                        with patch.object(csv_plotter, 'open_pdfs') as mock_open:
+            with patch('csv_plotter.parse_csv_file'):
+                with patch('csv_plotter.plot_data', return_value="plot.pdf"):
+                    with patch('csv_plotter.export_tables', return_value=[]):
+                        with patch('csv_plotter.open_pdfs') as mock_open:
                             main()
         mock_open.assert_not_called()
