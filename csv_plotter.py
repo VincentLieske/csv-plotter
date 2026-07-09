@@ -131,6 +131,9 @@ def plot_data(processed_files, args):
     plot_colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown']
     markers = ['o', 's', '^', 'x', 'D', 'v', '*', 'P', 'H']
 
+    # Sammle alle X-Spalten-Typen vor dem Plotten (für konsistente Datumsprüfung)
+    all_x_types = [f.parsed_columns[0].column_type for f in processed_files]
+
     # Flag ob mindestens eine X-Spalte ein Datum ist
     # --date-x erzwingt Datumsformat für X-Achse
     x_has_date = args.date_x
@@ -156,41 +159,51 @@ def plot_data(processed_files, args):
             marker = 'o'
 
         # Zeichne Scatter und Linie
-        ax.scatter(x_data, y_data, color=color, marker=marker, s=15, label=f"{label}")
+        ax.scatter(x_data, y_data, color=color, marker=marker, s=15, label=label)
         ax.plot(x_data, y_data, color=color, linestyle='--')
 
     # Wenn X-Achse Datum ist: formatiere schön mit Datumsformat
     # Bei --date-x: prüfe ob die X-Daten als Datum formatiert werden können
     if x_has_date:
-        # Prüfe ob die X-Daten datetime-kompatibel sind
-        x_is_datetime = pd.api.types.is_datetime64_any_dtype(first_file.parsed_columns[0].series)
-        if not x_is_datetime:
+        # Prüfe ob alle Dateien datetime-kompatible X-Spalten haben
+        has_non_date_file = False
+        for idx, processed_data in enumerate(processed_files):
+            x_series = processed_data.parsed_columns[0].series
+            x_col_type = all_x_types[idx]
+
+            if pd.api.types.is_datetime64_any_dtype(x_series):
+                continue  # Bereits datetime → ok
+
             # Prüfe, ob die X-Spalte NUMERIC ist (dann ist --date-x wahrscheinlich ein Fehler)
-            x_is_numeric = pd.api.types.is_numeric_dtype(first_file.parsed_columns[0].series)
-            if x_is_numeric:
-                # NUMERIC X-Spalte mit --date-x ist wahrscheinlich ein Fehler
-                print(f"Warnung: --date-x angegeben, aber X-Spalte '{first_file.filename}' ist numerisch. Numerische Darstellung wird verwendet.", file=sys.stderr)
-                x_has_date = False
-            else:
-                # Versuche die X-Daten als Datum zu konvertieren (für TEXT-Spalten)
-                try:
-                    # Konvertiere die X-Daten in datetime
-                    for processed_data in processed_files:
-                        x_series = processed_data.parsed_columns[0].series
-                        if not pd.api.types.is_datetime64_any_dtype(x_series):
-                            converted = pd.to_datetime(x_series, errors='coerce')
-                            if converted.notna().any():
-                                # Erfolgreich konvertiert - verwende konvertierte Daten
-                                processed_data.parsed_columns[0].series = converted
-                            else:
-                                # Konnte nicht konvertiert werden - deaktiviere Datumsformat
-                                print(f"Warnung: --date-x angegeben, aber X-Spalte '{processed_data.filename}' kann nicht als Datum formatiert werden. Numerische Darstellung wird verwendet.", file=sys.stderr)
-                                x_has_date = False
-                                break
-                except Exception as e:
-                    print(f"Warnung: --date-x Fehler bei Datumskonvertierung: {e}. Numerische Darstellung wird verwendet.", file=sys.stderr)
-                    x_has_date = False
-        
+            if pd.api.types.is_numeric_dtype(x_series) or x_col_type == ColumnType.NUMERIC:
+                print(f"Warnung: --date-x angegeben, aber X-Spalte '{processed_data.filename}' ist numerisch. Numerische Darstellung wird verwendet.", file=sys.stderr)
+                has_non_date_file = True
+                break
+
+            # Versuche die X-Daten als Datum zu konvertieren (für TEXT-Spalten)
+            try:
+                converted = pd.to_datetime(x_series, errors='coerce')
+                if converted.notna().any():
+                    # Erfolgreich konvertiert - verwende konvertierte Daten
+                    processed_data.parsed_columns[0].series = converted
+                else:
+                    print(f"Warnung: --date-x angegeben, aber X-Spalte '{processed_data.filename}' kann nicht als Datum formatiert werden. Numerische Darstellung wird verwendet.", file=sys.stderr)
+                    has_non_date_file = True
+                    break
+            except Exception as e:
+                print(f"Warnung: --date-x Fehler bei Datumskonvertierung: {e}. Numerische Darstellung wird verwendet.", file=sys.stderr)
+                has_non_date_file = True
+                break
+
+        if has_non_date_file:
+            x_has_date = False
+        else:
+            # Bei automatischer Erkennung (ohne --date-x): wenn nicht alle Dateien
+            # DATE-Typ haben, aber mindestens eine, warnen
+            if not args.date_x and any(t == ColumnType.DATE for t in all_x_types) and not all(t == ColumnType.DATE for t in all_x_types):
+                non_date_files = [processed_files[i].filename for i, t in enumerate(all_x_types) if t != ColumnType.DATE]
+                print(f"Warnung: Nicht alle X-Spalten sind Datumsspalten ({', '.join(non_date_files)}). Datumsformat wird dennoch verwendet.", file=sys.stderr)
+
         if x_has_date:
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m.%Y'))
             ax.xaxis.set_major_locator(mdates.AutoDateLocator())

@@ -5,6 +5,7 @@ import pytest
 import pandas as pd
 import numpy as np
 import sys
+import locale
 from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
 from column_parser import ColumnType, ColumnResult
@@ -356,6 +357,144 @@ class TestPlotData:
                 plot_data([pf], Mock(bw=False, y0=False))
                 # "Zeit\\nin s" → "Zeit\nin s" → im Label ein echter Zeilenumbruch
                 mock_ax.set_xlabel.assert_called_once_with("Zeit\nin s", fontsize=8)
+
+    def test_mixed_x_types_first_numeric_second_date_with_date_x(self, capsys):
+        """--date-x mit Datei-1 NUMERIC-X und Datei-2 DATE-X → Warnung + keine Datumsformatierung"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                f1 = self._make_mock_file("a", x_type=ColumnType.NUMERIC, x_values=[1.0, 2.0, 3.0])
+                f2 = self._make_mock_file("b", x_type=ColumnType.DATE,
+                                         x_values=pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]))
+                plot_data([f1, f2], Mock(bw=False, y0=False, date_x=True))
+
+                # Datumsformat darf NICHT gesetzt werden (erste Datei ist numerisch)
+                mock_ax.xaxis.set_major_formatter.assert_not_called()
+                captured = capsys.readouterr()
+                assert "numerisch" in captured.err
+
+    def test_mixed_x_types_first_date_second_numeric_auto(self, capsys):
+        """Automatische Erkennung: Datei-1 DATE, Datei-2 NUMERIC → Warnung, aber Datumsformat gesetzt"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                f1 = self._make_mock_file("a", x_type=ColumnType.DATE,
+                                         x_values=pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]))
+                f2 = self._make_mock_file("b", x_type=ColumnType.NUMERIC, x_values=[1.0, 2.0, 3.0])
+                plot_data([f1, f2], Mock(bw=False, y0=False, date_x=True))
+
+                # --date-x erzwungen, aber Datei-2 ist numerisch → Datumsformat deaktiviert
+                mock_ax.xaxis.set_major_formatter.assert_not_called()
+                captured = capsys.readouterr()
+                assert "numerisch" in captured.err
+
+    def test_date_x_flag_converts_text_x_in_all_files(self):
+        """--date-x konvertiert TEXT-X-Spalten in allen Dateien zu datetime"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                f1 = self._make_mock_file("a", x_type=ColumnType.TEXT, x_values=["2024-01-01", "2024-01-02"])
+                f2 = self._make_mock_file("b", x_type=ColumnType.TEXT, x_values=["2024-02-01", "2024-02-02"])
+                plot_data([f1, f2], Mock(bw=False, y0=False, date_x=True))
+
+                # Beide X-Spalten sollten jetzt datetime sein
+                assert pd.api.types.is_datetime64_any_dtype(f1.parsed_columns[0].series)
+                assert pd.api.types.is_datetime64_any_dtype(f2.parsed_columns[0].series)
+                mock_ax.xaxis.set_major_formatter.assert_called_once()
+
+    def test_date_x_flag_one_file_not_convertible_disables_all(self, capsys):
+        """--date-x: wenn eine Datei nicht konvertierbar ist → Datumsformat für alle deaktiviert"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                f1 = self._make_mock_file("a", x_type=ColumnType.TEXT, x_values=["2024-01-01", "2024-01-02"])
+                f2 = self._make_mock_file("b", x_type=ColumnType.TEXT, x_values=["kein-datum", "auch-keins"])
+                plot_data([f1, f2], Mock(bw=False, y0=False, date_x=True))
+
+                mock_ax.xaxis.set_major_formatter.assert_not_called()
+                captured = capsys.readouterr()
+                assert "kann nicht als Datum" in captured.err
+
+    def test_negative_y_values_with_y0(self):
+        """--y0 mit negativen Y-Werten → set_ylim(bottom=0) wird aufgerufen"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                plot_data([self._make_mock_file("m", y_values=[-5.0, -2.0, -10.0])], Mock(bw=False, y0=True))
+                mock_ax.set_ylim.assert_called_once_with(bottom=0)
+                mock_ax.axhline.assert_called_once()
+
+    def test_two_columns_zero_rows_does_not_raise(self):
+        """2 Spalten aber 0 Datenzeilen → kein ValueError (nur leere Plot)"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                col_x = ColumnResult(series=pd.Series([], dtype=float), column_type=ColumnType.NUMERIC, column_name="X")
+                col_y = ColumnResult(series=pd.Series([], dtype=float), column_type=ColumnType.NUMERIC, column_name="Y")
+                pf = ProcessedCSVFile(filename="leer", parsed_columns=[col_x, col_y])
+                # Sollte keinen Fehler werfen
+                result = plot_data([pf], Mock(bw=False, y0=False))
+                assert result == "leer_plot.pdf"
+
+    def test_table_decimal_dot_flag_in_export_tables(self):
+        """--table-decimal-dot → locale wird auf 'C' gesetzt (Punkt als Dezimaltrenner)"""
+        col_x = ColumnResult(series=pd.Series([1.5]), column_type=ColumnType.NUMERIC, column_name="X")
+        col_y = ColumnResult(series=pd.Series([10.2]), column_type=ColumnType.NUMERIC, column_name="Y")
+        pf = ProcessedCSVFile(filename="test", parsed_columns=[col_x, col_y])
+
+        with patch('csv_plotter.SimpleDocTemplate') as mock_doc_template:
+            mock_doc_instance = MagicMock()
+            mock_doc_template.return_value = mock_doc_instance
+            with patch('locale.setlocale') as mock_setlocale, patch('locale.getlocale', return_value=('german', 'cp1252')):
+                export_tables([pf], Mock(table_decimal_dot=True))
+
+        # Bei --table-decimal-dot muss 'C' Locale gesetzt werden
+        mock_setlocale.assert_any_call(locale.LC_NUMERIC, 'C')
+
+    def test_table_decimal_dot_false_uses_user_locale(self):
+        """Ohne --table-decimal-dot → User-Locale ('') wird versucht"""
+        col_x = ColumnResult(series=pd.Series([1.5]), column_type=ColumnType.NUMERIC, column_name="X")
+        col_y = ColumnResult(series=pd.Series([10.2]), column_type=ColumnType.NUMERIC, column_name="Y")
+        pf = ProcessedCSVFile(filename="test", parsed_columns=[col_x, col_y])
+
+        with patch('csv_plotter.SimpleDocTemplate') as mock_doc_template:
+            mock_doc_instance = MagicMock()
+            mock_doc_template.return_value = mock_doc_instance
+            with patch('locale.setlocale') as mock_setlocale, patch('locale.getlocale', return_value=('german', 'cp1252')):
+                export_tables([pf], Mock(table_decimal_dot=False))
+
+        # Ohne Flag: '' Locale (User-Default) wird versucht
+        mock_setlocale.assert_any_call(locale.LC_NUMERIC, '')
+
+    def test_format_cell_bool_with_date_type(self):
+        """format_cell(True, DATE) → 'True' (fällt durch auf str(value))"""
+        assert format_cell(True, ColumnType.DATE) == "True"
+        assert format_cell(False, ColumnType.DATE) == "False"
+
+    def test_format_cell_large_negative_with_locale(self):
+        """format_cell mit großer negativer Zahl + locale → korrekter String"""
+        result = format_cell(-1234567.89, ColumnType.NUMERIC, use_locale_numeric=True)
+        assert isinstance(result, str)
+        assert result.startswith("-")
+        # C-Locale liefert Exponentialschreibweise für große Zahlen
+        assert "1234567" in result or "1.23457" in result or "e+" in result
+
+    def test_format_cell_bool_numeric_with_locale(self):
+        """format_cell(False, NUMERIC, use_locale_numeric=True) → 'False' (nicht '0')"""
+        assert format_cell(False, ColumnType.NUMERIC, use_locale_numeric=True) == "False"
+        assert format_cell(True, ColumnType.NUMERIC, use_locale_numeric=True) == "True"
 
 
 # ---------------------------------------------------------------------------

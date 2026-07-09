@@ -697,3 +697,53 @@ class TestParseColumnToSeries:
         assert result.column_type == ColumnType.NUMERIC
         assert result.series.iloc[0] == 1234.56
         assert result.series.iloc[1] == 7890.12
+
+
+class TestParseDateColumnEdgeCases:
+    """Tests für _parse_date_column mit Grenzfällen"""
+
+    def test_all_invalid_dates_to_nat(self):
+        """Komplett ungültige Daten → alle NaT"""
+        s = pd.Series(["kein-datum", "auch-keins", "xyz"])
+        result = ColumnParser._parse_date_column(s)
+        assert pd.api.types.is_datetime64_any_dtype(result)
+        assert result.isna().all()
+
+    def test_empty_date_column(self):
+        """Leere Spalte → leere datetime-Serie"""
+        s = pd.Series([], dtype=object)
+        result = ColumnParser._parse_date_column(s)
+        assert pd.api.types.is_datetime64_any_dtype(result)
+        assert len(result) == 0
+
+    def test_all_nan_date_column(self):
+        """Nur NaN → NaT"""
+        s = pd.Series([None, None, None])
+        result = ColumnParser._parse_date_column(s)
+        assert result.isna().all()
+
+
+class TestParseNumericColumnEdgeCases:
+    """Tests für _parse_numeric_column mit Grenzfällen"""
+
+    def test_all_nan_numeric_column(self):
+        """Spalte mit nur NaN → float-Serie mit NaN"""
+        s = pd.Series([None, None, None], dtype=object)
+        result = ColumnParser._parse_numeric_column(s)
+        assert pd.api.types.is_float_dtype(result)
+        assert result.isna().all()
+
+    def test_all_nan_detected_as_text(self):
+        """detect_column_type mit nur NaN → TEXT (kein NUMERIC)"""
+        s = pd.Series([None, None, None], dtype=object)
+        assert ColumnParser.detect_column_type(s) == ColumnType.TEXT
+
+    def test_mixed_valid_and_invalid_numeric(self):
+        """Gemischte Spalte: gültige Zahlen + ungültige → NaN für ungültige"""
+        s = pd.Series(["1,5", "x", "3,7", "", "5,0"])
+        result = ColumnParser._parse_numeric_column(s)
+        assert result.iloc[0] == 1.5
+        assert pd.isna(result.iloc[1])
+        assert result.iloc[2] == 3.7
+        assert pd.isna(result.iloc[3])
+        assert result.iloc[4] == 5.0
