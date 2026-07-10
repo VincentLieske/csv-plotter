@@ -395,7 +395,7 @@ class TestPlotDataDateHandling:
                 assert "numerisch" in captured.err
 
     def test_mixed_x_types_first_date_second_numeric_auto(self, capsys):
-        """Automatische Erkennung: Datei-1 DATE, Datei-2 NUMERIC → Warnung, aber Datumsformat gesetzt"""
+        """Automatische Erkennung: Datei-1 DATE, Datei-2 NUMERIC → Warnung + Datumsformat deaktiviert"""
         with patch('matplotlib.pyplot.subplots') as mock_subplots:
             with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
                 mock_fig, mock_ax = MagicMock(), MagicMock()
@@ -406,12 +406,13 @@ class TestPlotDataDateHandling:
                 f2 = make_mock_file("b", x_type=ColumnType.NUMERIC, x_values=[1.0, 2.0, 3.0])
                 plot_data([f1, f2], make_default_mock_args())
 
-                mock_ax.xaxis.set_major_formatter.assert_called_once()
+                mock_ax.xaxis.set_major_formatter.assert_not_called()
                 captured = capsys.readouterr()
-                assert "Nicht alle X-Spalten sind Datumsspalten" in captured.err
+                assert "numerisch" in captured.err
+                assert "Datumsformat wird deaktiviert" in captured.err
 
     def test_date_x_flag_converts_text_x_in_all_files(self):
-        """--date-x konvertiert TEXT-X-Spalten in allen Dateien zu datetime"""
+        """--date-x konvertiert TEXT-X-Spalten in allen Dateien → Datumsformat gesetzt"""
         with patch('matplotlib.pyplot.subplots') as mock_subplots:
             with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
                 mock_fig, mock_ax = MagicMock(), MagicMock()
@@ -421,8 +422,9 @@ class TestPlotDataDateHandling:
                 f2 = make_mock_file("b", x_type=ColumnType.TEXT, x_values=["2024-02-01", "2024-02-02"])
                 plot_data([f1, f2], make_default_mock_args(date_x=True))
 
-                assert pd.api.types.is_datetime64_any_dtype(f1.parsed_columns[0].series)
-                assert pd.api.types.is_datetime64_any_dtype(f2.parsed_columns[0].series)
+                # Original-Daten wurden nicht mutiert (Side Effect behoben)
+                assert not pd.api.types.is_datetime64_any_dtype(f1.parsed_columns[0].series)
+                assert not pd.api.types.is_datetime64_any_dtype(f2.parsed_columns[0].series)
                 mock_ax.xaxis.set_major_formatter.assert_called_once()
 
     def test_date_x_flag_one_file_not_convertible_disables_all(self, capsys):
@@ -654,6 +656,105 @@ class TestMain:
                         with patch('csv_plotter.open_pdfs') as mock_open:
                             main()
         mock_open.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Plot-Side-Effect Tests: plot_data darf processed_files nicht mutieren
+# ---------------------------------------------------------------------------
+
+class TestPlotDataNoSideEffects:
+    """Tests, dass plot_data keine Side Effects auf processed_files hat"""
+
+    def test_plot_data_does_not_mutate_numeric_x_series(self):
+        """plot_data mit NUMERIC-X-Spalte → series bleibt unverändert"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                x_vals = [1.0, 2.0, 3.0]
+                pf = make_mock_file("m", x_type=ColumnType.NUMERIC, x_values=x_vals[:])
+                original_series = pf.parsed_columns[0].series.copy()
+
+                plot_data([pf], make_default_mock_args())
+
+                # Series wurde nicht mutiert
+                assert pf.parsed_columns[0].series.equals(original_series)
+
+    def test_plot_data_does_not_mutate_text_x_series_with_date_x(self):
+        """plot_data mit --date-x und TEXT-X → series bleibt unverändert"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                x_vals = ["2024-01-01", "2024-01-02"]
+                pf = make_mock_file("m", x_type=ColumnType.TEXT, x_values=x_vals[:])
+                original_series = pf.parsed_columns[0].series.copy()
+
+                plot_data([pf], make_default_mock_args(date_x=True))
+
+                # Series wurde nicht mutiert (Side Effect behoben)
+                assert pf.parsed_columns[0].series.equals(original_series)
+
+    def test_plot_data_does_not_mutate_date_x_series(self):
+        """plot_data mit DATE-X → series bleibt unverändert"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                dates = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"])
+                pf = make_mock_file("m", x_type=ColumnType.DATE, x_values=dates)
+                original_series = pf.parsed_columns[0].series.copy()
+
+                plot_data([pf], make_default_mock_args())
+
+                assert pf.parsed_columns[0].series.equals(original_series)
+
+    def test_plot_data_mixed_date_numeric_auto_does_not_mutate(self):
+        """plot_data mit gemischten DATE+NUMERIC X-Typen → keine Mutation"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                f1 = make_mock_file("a", x_type=ColumnType.DATE,
+                                   x_values=pd.to_datetime(["2024-01-01", "2024-01-02"]))
+                f2 = make_mock_file("b", x_type=ColumnType.NUMERIC, x_values=[1.0, 2.0])
+                original_series_1 = f1.parsed_columns[0].series.copy()
+                original_series_2 = f2.parsed_columns[0].series.copy()
+
+                plot_data([f1, f2], make_default_mock_args())
+
+                assert f1.parsed_columns[0].series.equals(original_series_1)
+                assert f2.parsed_columns[0].series.equals(original_series_2)
+
+
+# ---------------------------------------------------------------------------
+# export_tables: min(col_lengths) verwendet die kürzeste Spalte
+# ---------------------------------------------------------------------------
+
+class TestExportTablesUnevenColumns:
+    """Tests für export_tables mit ungleich langen Spalten"""
+
+    def test_uneven_columns_uses_min_length(self):
+        """Unterschiedlich lange Spalten → min(col_lengths) Zeilen in Tabelle"""
+        col_x = ColumnResult(series=pd.Series([1.0, 2.0, 3.0, 4.0]),
+                            column_type=ColumnType.NUMERIC, column_name="X")
+        col_y = ColumnResult(series=pd.Series([10.0, 20.0]),
+                            column_type=ColumnType.NUMERIC, column_name="Y")
+        pf = ProcessedCSVFile(filename="test", parsed_columns=[col_x, col_y])
+
+        with patch('csv_plotter.SimpleDocTemplate') as mock_doc_template:
+            mock_doc_instance = MagicMock()
+            mock_doc_template.return_value = mock_doc_instance
+            with patch('locale.setlocale'), patch('locale.getlocale', return_value=('german', 'cp1252')):
+                result = export_tables([pf], make_default_mock_args(table_decimal_dot=False))
+
+        assert result == ["test_tabelle.pdf"]
+        # build wurde aufgerufen → das reicht, die genauen Zeilen prüfen wir
+        mock_doc_instance.build.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

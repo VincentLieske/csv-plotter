@@ -66,7 +66,7 @@ class ColumnParser:
 
         return ColumnResult(series=parsed, column_type=column_type, column_name=column_name)
 
-    _THOUSANDS_COMMA = re.compile(r'^-?\d{1,3}(\.\d{3})*,\d+$')
+    _THOUSANDS_COMMA = re.compile(r'^-?\d{1,3}(\.\d{3})*,\d*$')
 
     @staticmethod
     def _is_german_number(s: str) -> bool:
@@ -74,22 +74,23 @@ class ColumnParser:
 
         - Komma als Dezimaltrenner (z.B. '1,5', '-1,5')
         - Optional Tausenderpunkte (z.B. '1.234,56', '-1.234,56')
+        - Komma ohne Dezimalstellen: '10,' → True (wird von _parse_single_numeric unterstützt)
+        - Doppelte Punkte: '1..234,56' → True (wird von _parse_single_numeric unterstützt)
         - Kein Komma: '1234' → False (wird von to_numeric bereits erfasst)
         - Punkt-Zahl: '1.5' → False (englische Notation)
         """
         if ',' not in s:
             return False
-        # "1,5" oder "-1,5" → einfaches deutsches Format
+        # "1,5" oder "-1,5" oder "10," → einfaches deutsches Format
         if '.' not in s:
-            return bool(re.match(r'^-?\d+,\d+$', s))
+            return bool(re.match(r'^-?\d+,(\d+)?$', s))
         # "1.234,56" oder "-1.234,56" → deutsches Format mit Tausenderpunkten
         # Nutzt dieselbe Heuristik wie _is_thousands_dot: prüft ob alle Punkte
         # genau 3 Ziffern folgen haben (Tausenderpunkte)
-        parts = s.split(',')
-        integer_part = parts[0]  # alles vor dem Komma
-        # Jeder Punkt im Integer-Teil muss genau 3 Ziffern folgen haben
-        # Z.B. "1.234" → True, "1.2345" → False, "1.23" → False
-        return bool(ColumnParser._THOUSANDS_COMMA.match(s))
+        # Doppelte Punkte (z.B. "1..234,56") werden toleriert, indem wir
+        # doppelte Punkte vor dem Matchen entfernen
+        cleaned = re.sub(r'\.+', '.', s)
+        return bool(ColumnParser._THOUSANDS_COMMA.match(cleaned))
 
     @staticmethod
     def _german_number_to_float(s: str) -> float:

@@ -138,6 +138,9 @@ def plot_data(processed_files, args):
     # --date-x erzwingt Datumsformat für X-Achse
     x_has_date = args.date_x
 
+    # Lokaler Speicher für konvertierte X-Serien (um Side Effects auf processed_files zu vermeiden)
+    converted_x_series = {}
+
     # Plotte jede CSV-Datei
     for i, processed_data in enumerate(processed_files):
         label = processed_data.filename
@@ -175,22 +178,23 @@ def plot_data(processed_files, args):
                 continue  # Bereits datetime → ok
 
             # Prüfe, ob die X-Spalte NUMERIC ist
-            # Bei --date-x: Warnung und Datumsformat deaktivieren
-            # Bei automatischer Erkennung: Warnung, aber Datumsformat trotzdem verwenden
             if pd.api.types.is_numeric_dtype(x_series) or x_col_type == ColumnType.NUMERIC:
                 if args.date_x:
                     print(f"Warnung: --date-x angegeben, aber X-Spalte '{processed_data.filename}' ist numerisch. Numerische Darstellung wird verwendet.", file=sys.stderr)
                     has_non_date_file = True
                     break
-                # Bei automatischer Erkennung: ignorieren und Datumsformat trotzdem verwenden
-                continue
+                # Bei automatischer Erkennung: NUMERIC + DATE gemischt → Datumsformat deaktivieren
+                # (NUMERIC-Werte können nicht sinnvoll als Datum dargestellt werden)
+                print(f"Warnung: X-Spalte '{processed_data.filename}' ist numerisch, aber andere Dateien haben Datums-X. Datumsformat wird deaktiviert.", file=sys.stderr)
+                has_non_date_file = True
+                break
 
             # Versuche die X-Daten als Datum zu konvertieren (für TEXT-Spalten)
             try:
                 converted = pd.to_datetime(x_series, errors='coerce')
                 if converted.notna().any():
-                    # Erfolgreich konvertiert - verwende konvertierte Daten
-                    processed_data.parsed_columns[0].series = converted
+                    # Erfolgreich konvertiert - speichere lokal (kein Side Effect auf processed_files)
+                    converted_x_series[idx] = converted
                 else:
                     if args.date_x:
                         print(f"Warnung: --date-x angegeben, aber X-Spalte '{processed_data.filename}' kann nicht als Datum formatiert werden. Numerische Darstellung wird verwendet.", file=sys.stderr)

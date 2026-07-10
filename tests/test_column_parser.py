@@ -178,6 +178,38 @@ class TestIsGermanNumber:
         """1. → False"""
         assert ColumnParser._is_german_number("1.") is False
 
+    def test_comma_without_decimals_is_true(self):
+        """'10,' → True (wird von _parse_single_numeric unterstützt)"""
+        assert ColumnParser._is_german_number("10,") is True
+
+    def test_double_dot_german_number_is_true(self):
+        """'1..234,56' → True (doppelte Punkte werden toleriert)"""
+        assert ColumnParser._is_german_number("1..234,56") is True
+
+    def test_double_dot_negative_german_number_is_true(self):
+        """'-1..234,56' → True"""
+        assert ColumnParser._is_german_number("-1..234,56") is True
+
+    def test_consistency_with_parse_single_numeric_simple(self):
+        """'1,5': _is_german_number und _parse_single_numeric konsistent"""
+        assert ColumnParser._is_german_number("1,5") is True
+        assert ColumnParser._parse_single_numeric("1,5") == 1.5
+
+    def test_consistency_with_parse_single_numeric_thousands(self):
+        """'1.234,56': _is_german_number und _parse_single_numeric konsistent"""
+        assert ColumnParser._is_german_number("1.234,56") is True
+        assert ColumnParser._parse_single_numeric("1.234,56") == 1234.56
+
+    def test_consistency_with_parse_single_numeric_comma_no_decimals(self):
+        """'10,': _is_german_number und _parse_single_numeric konsistent"""
+        assert ColumnParser._is_german_number("10,") is True
+        assert ColumnParser._parse_single_numeric("10,") == 10.0
+
+    def test_consistency_with_parse_single_numeric_double_dot(self):
+        """'1..234,56': _is_german_number und _parse_single_numeric konsistent"""
+        assert ColumnParser._is_german_number("1..234,56") is True
+        assert ColumnParser._parse_single_numeric("1..234,56") == 1234.56
+
 
 class TestGermanNumberToFloat:
     """Direkte Tests für _german_number_to_float"""
