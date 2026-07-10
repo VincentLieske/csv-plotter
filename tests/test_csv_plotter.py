@@ -411,6 +411,51 @@ class TestPlotDataDateHandling:
                 assert "numerisch" in captured.err
                 assert "Datumsformat wird deaktiviert" in captured.err
 
+    def test_date_x_converts_text_x_values_actually_plotted_as_datetime(self):
+        """--date-x mit TEXT-X: Die tatsächlich geplotteten Daten müssen datetime sein (Regression: converted_x_series wurde nie verwendet)"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                f1 = make_mock_file("a", x_type=ColumnType.TEXT, x_values=["2024-01-05", "2024-03-15"])
+                plot_data([f1], make_default_mock_args(date_x=True))
+
+                # Scatter wurde mit datetime64-Daten aufgerufen (nicht mit rohen Strings!)
+                scatter_args = mock_ax.scatter.call_args[0]
+                x_data_plotted = scatter_args[0]
+                assert pd.api.types.is_datetime64_any_dtype(x_data_plotted), \
+                    f"Erwartet datetime64, aber erhalten: {x_data_plotted.dtype}"
+                assert x_data_plotted.iloc[0] == pd.Timestamp("2024-01-05")
+                assert x_data_plotted.iloc[1] == pd.Timestamp("2024-03-15")
+
+                # Plot (Linie) wurde ebenfalls mit datetime64-Daten aufgerufen
+                plot_args = mock_ax.plot.call_args[0]
+                x_line_plotted = plot_args[0]
+                assert pd.api.types.is_datetime64_any_dtype(x_line_plotted)
+
+    def test_date_x_converts_text_x_in_all_files_two_files(self):
+        """--date-x mit zwei TEXT-X-Dateien: beide werden konvertiert geplottet"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                f1 = make_mock_file("a", x_type=ColumnType.TEXT, x_values=["2024-01-01", "2024-01-02"])
+                f2 = make_mock_file("b", x_type=ColumnType.TEXT, x_values=["2024-02-01", "2024-02-02"])
+                plot_data([f1, f2], make_default_mock_args(date_x=True))
+
+                # Beide scatter-Aufrufe müssen datetime64-Daten erhalten haben
+                assert mock_ax.scatter.call_count == 2
+                assert mock_ax.plot.call_count == 2
+                for call_args in mock_ax.scatter.call_args_list:
+                    x_data = call_args[0][0]
+                    assert pd.api.types.is_datetime64_any_dtype(x_data), \
+                        f"Erwartet datetime64 in scatter, erhalten: {x_data.dtype}"
+                for call_args in mock_ax.plot.call_args_list:
+                    x_data = call_args[0][0]
+                    assert pd.api.types.is_datetime64_any_dtype(x_data)
+
     def test_date_x_flag_converts_text_x_in_all_files(self):
         """--date-x konvertiert TEXT-X-Spalten in allen Dateien → Datumsformat gesetzt"""
         with patch('matplotlib.pyplot.subplots') as mock_subplots:
@@ -755,6 +800,48 @@ class TestExportTablesUnevenColumns:
         assert result == ["test_tabelle.pdf"]
         # build wurde aufgerufen → das reicht, die genauen Zeilen prüfen wir
         mock_doc_instance.build.assert_called_once()
+
+    def test_more_than_30_rows_creates_multiple_subtables(self):
+        """>30 Zeilen → mehrere Subtabellen (max 30 Zeilen pro Subtabelle)"""
+        # 65 Zeilen → 3 Subtabellen (30 + 30 + 5) + 1 Layout-Tabelle = 4 Table-Aufrufe
+        num_rows = 65
+        col_x = ColumnResult(series=pd.Series(range(1, num_rows + 1), dtype=float),
+                            column_type=ColumnType.NUMERIC, column_name="X")
+        col_y = ColumnResult(series=pd.Series(range(10, 10 + num_rows), dtype=float),
+                            column_type=ColumnType.NUMERIC, column_name="Y")
+        pf = ProcessedCSVFile(filename="test", parsed_columns=[col_x, col_y])
+
+        with patch('csv_plotter.SimpleDocTemplate') as mock_doc_template:
+            mock_doc_instance = MagicMock()
+            mock_doc_template.return_value = mock_doc_instance
+            with patch('csv_plotter.Table') as mock_table:
+                with patch('locale.setlocale'), patch('locale.getlocale', return_value=('german', 'cp1252')):
+                    result = export_tables([pf], make_default_mock_args(table_decimal_dot=False))
+
+        assert result == ["test_tabelle.pdf"]
+        # Es wurden 4 Table-Instanzen erstellt:
+        # - 3 innere Tabellen (eine pro 30 Zeilen-Chunk: 0-29, 30-59, 60-64)
+        # - 1 Layout-Tabelle (die sie zusammenfasst)
+        assert mock_table.call_count == 4, (
+            f"Erwartet 4 Table-Aufrufe (3 data-tables + 1 layout), aber {mock_table.call_count} erhalten"
+        )
+
+    def test_exactly_30_rows_creates_single_subtable(self):
+        """Genau 30 Zeilen → genau 1 Subtabelle"""
+        num_rows = 30
+        col_x = ColumnResult(series=pd.Series(range(1, num_rows + 1), dtype=float),
+                            column_type=ColumnType.NUMERIC, column_name="X")
+        col_y = ColumnResult(series=pd.Series(range(10, 10 + num_rows), dtype=float),
+                            column_type=ColumnType.NUMERIC, column_name="Y")
+        pf = ProcessedCSVFile(filename="test", parsed_columns=[col_x, col_y])
+
+        with patch('csv_plotter.SimpleDocTemplate') as mock_doc_template:
+            mock_doc_instance = MagicMock()
+            mock_doc_template.return_value = mock_doc_instance
+            with patch('locale.setlocale'), patch('locale.getlocale', return_value=('german', 'cp1252')):
+                result = export_tables([pf], make_default_mock_args(table_decimal_dot=False))
+
+        assert result == ["test_tabelle.pdf"]
 
 
 # ---------------------------------------------------------------------------

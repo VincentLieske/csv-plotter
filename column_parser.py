@@ -93,12 +93,6 @@ class ColumnParser:
         return bool(ColumnParser._THOUSANDS_COMMA.match(cleaned))
 
     @staticmethod
-    def _german_number_to_float(s: str) -> float:
-        """Wandelt eine deutsche Zahl in einen float um (z.B. '1.234,56' → 1234.56)"""
-        # Entferne Tausenderpunkte, ersetze Komma durch Punkt
-        return float(s.replace('.', '').replace(',', '.'))
-
-    @staticmethod
     def detect_column_type(column_values: pd.Series) -> ColumnType:
         """
         Erkennt automatisch, welcher Datentyp in der Spalte dominiert.

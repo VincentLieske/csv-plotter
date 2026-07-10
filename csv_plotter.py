@@ -141,41 +141,19 @@ def plot_data(processed_files, args):
     # Lokaler Speicher für konvertierte X-Serien (um Side Effects auf processed_files zu vermeiden)
     converted_x_series = {}
 
-    # Plotte jede CSV-Datei
-    for i, processed_data in enumerate(processed_files):
-        label = processed_data.filename
-
-        # Extrahiere X und Y aus den geparsten Spalten
-        x_data = processed_data.parsed_columns[0].series
-        y_data = processed_data.parsed_columns[1].series
-
-        # Merke: ist die X-Spalte eine Datumsspalte? (wenn nicht durch --date-x erzwungen)
-        if not x_has_date and processed_data.parsed_columns[0].column_type == ColumnType.DATE:
-            x_has_date = True
-
-        # Wähle Farbe/Symbol basierend auf Modus (Farbe oder Schwarz-Weiß)
-        if args.bw:
-            color = 'black'
-            marker = markers[i % len(markers)]  # Verschiedene Symbole
-        else:
-            color = plot_colors[i % len(plot_colors)]  # Verschiedene Farben
-            marker = 'o'
-
-        # Zeichne Scatter und Linie
-        ax.scatter(x_data, y_data, color=color, marker=marker, s=15, label=label)
-        ax.plot(x_data, y_data, color=color, linestyle='--')
-
-    # Wenn X-Achse Datum ist: formatiere schön mit Datumsformat
-    # Bei --date-x: prüfe ob die X-Daten als Datum formatiert werden können
-    if x_has_date:
-        # Prüfe ob alle Dateien datetime-kompatible X-Spalten haben
+    # Wenn X-Achse potentiell Datum ist: prüfe und konvertiere X-Spalten vor dem Plotten
+    # Dies muss VOR dem Plot-Loop passieren, damit konvertierte Daten verwendet werden können
+    if x_has_date or any(t == ColumnType.DATE for t in all_x_types):
         has_non_date_file = False
         for idx, processed_data in enumerate(processed_files):
             x_series = processed_data.parsed_columns[0].series
             x_col_type = all_x_types[idx]
 
             if pd.api.types.is_datetime64_any_dtype(x_series):
-                continue  # Bereits datetime → ok
+                # Bereits datetime → merken für Datumsformat
+                if not x_has_date:
+                    x_has_date = True
+                continue
 
             # Prüfe, ob die X-Spalte NUMERIC ist
             if pd.api.types.is_numeric_dtype(x_series) or x_col_type == ColumnType.NUMERIC:
@@ -184,10 +162,12 @@ def plot_data(processed_files, args):
                     has_non_date_file = True
                     break
                 # Bei automatischer Erkennung: NUMERIC + DATE gemischt → Datumsformat deaktivieren
-                # (NUMERIC-Werte können nicht sinnvoll als Datum dargestellt werden)
-                print(f"Warnung: X-Spalte '{processed_data.filename}' ist numerisch, aber andere Dateien haben Datums-X. Datumsformat wird deaktiviert.", file=sys.stderr)
-                has_non_date_file = True
-                break
+                if x_has_date:
+                    print(f"Warnung: X-Spalte '{processed_data.filename}' ist numerisch, aber andere Dateien haben Datums-X. Datumsformat wird deaktiviert.", file=sys.stderr)
+                    has_non_date_file = True
+                    break
+                # Keine Datums-Spalte gefunden → kein Datumsformat
+                continue
 
             # Versuche die X-Daten als Datum zu konvertieren (für TEXT-Spalten)
             try:
@@ -195,6 +175,7 @@ def plot_data(processed_files, args):
                 if converted.notna().any():
                     # Erfolgreich konvertiert - speichere lokal (kein Side Effect auf processed_files)
                     converted_x_series[idx] = converted
+                    x_has_date = True
                 else:
                     if args.date_x:
                         print(f"Warnung: --date-x angegeben, aber X-Spalte '{processed_data.filename}' kann nicht als Datum formatiert werden. Numerische Darstellung wird verwendet.", file=sys.stderr)
@@ -210,17 +191,43 @@ def plot_data(processed_files, args):
 
         if has_non_date_file:
             x_has_date = False
-        else:
-            # Bei automatischer Erkennung (ohne --date-x): wenn nicht alle Dateien
-            # DATE-Typ haben, aber mindestens eine, warnen
-            if not args.date_x and any(t == ColumnType.DATE for t in all_x_types) and not all(t == ColumnType.DATE for t in all_x_types):
-                non_date_files = [processed_files[i].filename for i, t in enumerate(all_x_types) if t != ColumnType.DATE]
-                print(f"Warnung: Nicht alle X-Spalten sind Datumsspalten ({', '.join(non_date_files)}). Datumsformat wird dennoch verwendet.", file=sys.stderr)
+            converted_x_series = {}  # Verwerfe alle Konvertierungen
 
-        if x_has_date:
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m.%Y'))
-            ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-            fig.autofmt_xdate()  # Dreht Labels automatisch für Lesbarkeit
+    # Plotte jede CSV-Datei
+    for i, processed_data in enumerate(processed_files):
+        label = processed_data.filename
+
+        # Extrahiere X und Y aus den geparsten Spalten
+        x_data = processed_data.parsed_columns[0].series
+        y_data = processed_data.parsed_columns[1].series
+
+        # Wähle Farbe/Symbol basierend auf Modus (Farbe oder Schwarz-Weiß)
+        if args.bw:
+            color = 'black'
+            marker = markers[i % len(markers)]  # Verschiedene Symbole
+        else:
+            color = plot_colors[i % len(plot_colors)]  # Verschiedene Farben
+            marker = 'o'
+
+        # Verwende konvertierte X-Daten falls vorhanden (für --date-x mit TEXT-X-Spalten)
+        if i in converted_x_series:
+            x_data = converted_x_series[i]
+
+        # Zeichne Scatter und Linie
+        ax.scatter(x_data, y_data, color=color, marker=marker, s=15, label=label)
+        ax.plot(x_data, y_data, color=color, linestyle='--')
+
+    # Wenn X-Achse Datum ist: formatiere schön mit Datumsformat
+    if x_has_date:
+        # Bei automatischer Erkennung (ohne --date-x): wenn nicht alle Dateien
+        # DATE-Typ haben, aber mindestens eine, warnen
+        if not args.date_x and any(t == ColumnType.DATE for t in all_x_types) and not all(t == ColumnType.DATE for t in all_x_types):
+            non_date_files = [processed_files[i].filename for i, t in enumerate(all_x_types) if t != ColumnType.DATE]
+            print(f"Warnung: Nicht alle X-Spalten sind Datumsspalten ({', '.join(non_date_files)}). Datumsformat wird dennoch verwendet.", file=sys.stderr)
+
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m.%Y'))
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        fig.autofmt_xdate()  # Dreht Labels automatisch für Lesbarkeit
 
     # Hole Achsenbeschriftungen von der ersten Datei
     # (annahme: alle CSV-Dateien haben gleiche Spalten)

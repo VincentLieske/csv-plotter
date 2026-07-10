@@ -211,26 +211,6 @@ class TestIsGermanNumber:
         assert ColumnParser._parse_single_numeric("1..234,56") == 1234.56
 
 
-class TestGermanNumberToFloat:
-    """Direkte Tests für _german_number_to_float"""
-
-    def test_simple_comma(self):
-        """1,5 → 1.5"""
-        assert ColumnParser._german_number_to_float("1,5") == 1.5
-
-    def test_thousands_and_comma(self):
-        """1.234,56 → 1234.56"""
-        assert ColumnParser._german_number_to_float("1.234,56") == 1234.56
-
-    def test_multi_thousands(self):
-        """1.000.000,00 → 1000000.0"""
-        assert ColumnParser._german_number_to_float("1.000.000,00") == 1000000.0
-
-    def test_large_number(self):
-        """12.345.678,90 → 12345678.9"""
-        assert ColumnParser._german_number_to_float("12.345.678,90") == 12345678.9
-
-
 class TestHasIsoFormat:
     """Direkte Tests für _has_iso_format"""
 
