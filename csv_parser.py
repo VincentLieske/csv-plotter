@@ -5,6 +5,10 @@ Umgang mit deutschen Formaten:
 - Trennzeichen: Semikolon (;)
 - Dezimalzeichen: Komma (,)
 - Datumsformate: DD.MM.YYYY, YYYY-MM-DD, etc.
+
+Hinweis: Alle Werte werden als Strings eingelesen (dtype=str), damit
+ColumnParser die Typ-Erkennung und Zahlen-Parsing-Heuristik sauber
+in einem Pfad durchführen kann — analog zur Datumsstil-Erkennung.
 """
 import os
 import pandas as pd
@@ -32,6 +36,10 @@ def parse_csv_file(file_path: str) -> ProcessedCSVFile:
 
     Encoding: Versucht UTF-8, UTF-16 (mit BOM), Latin-1 und Windows-1252
     (häufig bei älteren Windows-Dateien mit Umlauten)
+
+    Alle Werte werden als Strings eingelesen (dtype=str). Die Typ-Erkennung
+    und das Parsing erfolgt komplett in ColumnParser, inkl. der Heuristik
+    für deutsches (Komma) vs. englisches (Punkt) Zahlenformat pro Spalte.
     """
     # Erkenne Encoding via BOM (Byte Order Mark)
     detected_encoding = None
@@ -52,8 +60,10 @@ def parse_csv_file(file_path: str) -> ProcessedCSVFile:
     df = None
     for enc in encodings:
         try:
-            # Lese CSV mit deutschen Einstellungen: ; als Trennzeichen, , als Dezimal
-            df = pd.read_csv(file_path, sep=';', decimal=',', encoding=enc)
+            # Lese CSV: ; als Trennzeichen, alle Werte als Strings
+            # (kein decimal=',' mehr — ColumnParser entscheidet selbst
+            #  per Heuristik ob deutsches oder englisches Format)
+            df = pd.read_csv(file_path, sep=';', dtype=str, encoding=enc)
             print(f"[INFO] CSV mit Encoding '{enc}' gelesen: {file_path}")
             break
         except (UnicodeDecodeError, LookupError):

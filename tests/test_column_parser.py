@@ -3,7 +3,7 @@ Tests für den ColumnParser — Typ-Erkennung, Datums- und Zahlen-Parsing.
 """
 import pandas as pd
 import numpy as np
-from column_parser import ColumnParser, ColumnType
+from column_parser import ColumnParser, ColumnType, NumericStyle
 
 
 class TestDetectColumnType:
@@ -210,6 +210,14 @@ class TestIsGermanNumber:
         assert ColumnParser._is_german_number("1..234,56") is True
         assert ColumnParser._parse_single_numeric("1..234,56") == 1234.56
 
+    def test_plus_prefix_german_number(self):
+        """'+1,5' → True (Plus-Präfix wird unterstützt)"""
+        assert ColumnParser._is_german_number("+1,5") is True
+
+    def test_plus_prefix_german_thousands(self):
+        """'+1.234,56' → True"""
+        assert ColumnParser._is_german_number("+1.234,56") is True
+
 
 class TestHasIsoFormat:
     """Direkte Tests für _has_iso_format"""
@@ -225,12 +233,12 @@ class TestHasIsoFormat:
         assert ColumnParser._has_iso_format(s) is False
 
     def test_mixed_iso_and_german(self):
-        """ISO und deutsch gemischt → True (weil ISO > 50%)"""
+        """ISO und deutsch gemischt → True (weil ISO > 60%)"""
         s = pd.Series(["2024-01-05", "2024-03-15", "01.01.2024"])
         assert ColumnParser._has_iso_format(s) is True
 
     def test_mixed_iso_below_threshold(self):
-        """Weniger als 50% ISO → False"""
+        """Weniger als 60% ISO → False"""
         s = pd.Series(["2024-01-05", "01.01.2024", "15.03.2024"])
         assert ColumnParser._has_iso_format(s) is False
 
@@ -248,6 +256,77 @@ class TestHasIsoFormat:
         """ISO mit zweistelligem Jahr (24-01-05) → False (24 < 31, zählt nicht als ISO)"""
         s = pd.Series(["24-01-05", "24-03-15"])
         assert ColumnParser._has_iso_format(s) is False
+
+
+class TestIsThousandsDot:
+    """Direkte Tests für _is_thousands_dot"""
+
+    def test_thousands_dot_3_digits(self):
+        """'1.000' → True (3 Ziffern nach Punkt)"""
+        assert ColumnParser._is_thousands_dot("1.000") is True
+
+    def test_thousands_dot_multiple_groups(self):
+        """'1.234.567' → True"""
+        assert ColumnParser._is_thousands_dot("1.234.567") is True
+
+    def test_decimal_dot_2_digits(self):
+        """'1.23' → False (2 Ziffern nach Punkt)"""
+        assert ColumnParser._is_thousands_dot("1.23") is False
+
+    def test_decimal_dot_4_digits(self):
+        """'1.2345' → False (4 Ziffern nach Punkt)"""
+        assert ColumnParser._is_thousands_dot("1.2345") is False
+
+    def test_no_dot(self):
+        """'1234' → False (kein Punkt)"""
+        assert ColumnParser._is_thousands_dot("1234") is False
+
+    def test_negative_thousands(self):
+        """'-1.000' → True"""
+        assert ColumnParser._is_thousands_dot("-1.000") is True
+
+    def test_dot_at_end(self):
+        """'1.' → False (keine Ziffern nach Punkt)"""
+        assert ColumnParser._is_thousands_dot("1.") is False
+
+
+class TestDetectNumericStyle:
+    """Direkte Tests für _detect_numeric_style"""
+
+    def test_pure_german_comma(self):
+        """Reine deutsche Kommazahlen → GERMAN_COMMA"""
+        s = pd.Series(["1,5", "2,3", "3,7"])
+        assert ColumnParser._detect_numeric_style(s) == NumericStyle.GERMAN_COMMA
+
+    def test_pure_english_dot(self):
+        """Reine englische Punkt-Zahlen → ENGLISH_DOT"""
+        s = pd.Series(["1.5", "2.3", "3.7"])
+        assert ColumnParser._detect_numeric_style(s) == NumericStyle.ENGLISH_DOT
+
+    def test_german_thousands_wins(self):
+        """2 deutsche mit Tausenderpunkt, 1 englisch → GERMAN_COMMA (Mehrheit)"""
+        s = pd.Series(["1.234,56", "7.890,12", "1234.56"])
+        assert ColumnParser._detect_numeric_style(s) == NumericStyle.GERMAN_COMMA
+
+    def test_english_dot_wins(self):
+        """2 englische Punkt-Zahlen, 1 deutsches Komma → ENGLISH_DOT (Mehrheit)"""
+        s = pd.Series(["1.5", "2.3", "3,7"])
+        assert ColumnParser._detect_numeric_style(s) == NumericStyle.ENGLISH_DOT
+
+    def test_tie_falls_back_to_german(self):
+        """Gleichstand 1:1 → GERMAN_COMMA (Fallback)"""
+        s = pd.Series(["1,5", "1.5"])
+        assert ColumnParser._detect_numeric_style(s) == NumericStyle.GERMAN_COMMA
+
+    def test_integers_no_evidence_fallback_german(self):
+        """Nur Integers → keine Evidenz → GERMAN_COMMA (Fallback)"""
+        s = pd.Series(["1000", "2000", "3000"])
+        assert ColumnParser._detect_numeric_style(s) == NumericStyle.GERMAN_COMMA
+
+    def test_empty_series_fallback_german(self):
+        """Leere Series → GERMAN_COMMA (Fallback)"""
+        s = pd.Series([], dtype=object)
+        assert ColumnParser._detect_numeric_style(s) == NumericStyle.GERMAN_COMMA
 
 
 class TestParseNumericColumn:
@@ -328,11 +407,13 @@ class TestParseNumericColumn:
         assert result.iloc[0] == 1.23
 
     def test_mixed_german_thousands_and_english_dot(self):
-        """Gemischte Formate in einer Spalte"""
+        """Gemischte Formate in einer Spalte → Heuristik erkennt GERMAN als Mehrheit (2:1) → GERMAN_COMMA
+        Der englische Wert '1234.56' wird dann als deutsch interpretiert → 123456.0"""
         s = pd.Series(["1.234,56", "1234.56", "1,5"])
         result = ColumnParser._parse_numeric_column(s)
         assert result.iloc[0] == 1234.56
-        assert result.iloc[1] == 1234.56
+        # '1234.56' hat kein Komma → GERMAN_COMMA entfernt den Punkt → 123456.0
+        assert result.iloc[1] == 123456.0
         assert result.iloc[2] == 1.5
 
     def test_nan_and_valid_mixed(self):
@@ -388,11 +469,13 @@ class TestParseNumericColumn:
         assert result.iloc[2] == 3.14159
 
     def test_mixed_german_column_with_english_like_value(self):
-        """Gemischte Spalte mit deutschem '1,5' und englischem '1.2345' → per-value: '1.2345' hat 4 Nachkommastellen → 1.2345, '1,5' → 1.5"""
+        """Gemischte Spalte mit deutschem '1,5' und englischem '1.2345' → Gleichstand 1:1 → Fallback auf GERMAN_COMMA → '1.2345' wird als deutsch (12345.0) interpretiert"""
         s = pd.Series(["1.2345", "1,5"])
         result = ColumnParser._parse_numeric_column(s)
-        # '1.2345' hat kein Komma und 4 Ziffern nach Punkt → kein Tausenderpunkt (\.\d{3}$ matched nicht)
-        assert result.iloc[0] == 1.2345
+        # '1.2345' → kein Komma, 1 Punkt mit 4 Nachkommastellen → english_evidence=1
+        # '1,5' → Komma → german_evidence=1
+        # Gleichstand (1:1) → Fallback GERMAN_COMMA → "1.2345" wird als Tausenderpunktloser Wert geparst
+        assert result.iloc[0] == 12345.0
         # '1,5' hat Komma → deutsches Format
         assert result.iloc[1] == 1.5
 
