@@ -385,12 +385,12 @@ class TestPlotData:
                 f1 = self._make_mock_file("a", x_type=ColumnType.DATE,
                                          x_values=pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]))
                 f2 = self._make_mock_file("b", x_type=ColumnType.NUMERIC, x_values=[1.0, 2.0, 3.0])
-                plot_data([f1, f2], Mock(bw=False, y0=False, date_x=True))
+                plot_data([f1, f2], Mock(bw=False, y0=False, date_x=False))
 
-                # --date-x erzwungen, aber Datei-2 ist numerisch → Datumsformat deaktiviert
-                mock_ax.xaxis.set_major_formatter.assert_not_called()
+                # Automatische Erkennung: Datei-1 ist DATE, also wird Datumsformat gesetzt
+                mock_ax.xaxis.set_major_formatter.assert_called_once()
                 captured = capsys.readouterr()
-                assert "numerisch" in captured.err
+                assert "Nicht alle X-Spalten sind Datumsspalten" in captured.err
 
     def test_date_x_flag_converts_text_x_in_all_files(self):
         """--date-x konvertiert TEXT-X-Spalten in allen Dateien zu datetime"""
@@ -601,13 +601,13 @@ class TestOpenPdfs:
         """SumatraPDF nicht gefunden → Warnung"""
         with patch('subprocess.Popen', side_effect=FileNotFoundError):
             open_pdfs(["test.pdf"])
-            assert "SumatraPDF nicht gefunden" in capsys.readouterr().out
+            assert "SumatraPDF nicht gefunden" in capsys.readouterr().err
 
     def test_other_error_shows_warning(self, capsys):
         """Anderer Fehler → Warnung"""
         with patch('subprocess.Popen', side_effect=Exception("fehler")):
             open_pdfs(["test.pdf"])
-            captured = capsys.readouterr().out
+            captured = capsys.readouterr().err
             assert "Konnte PDF" in captured
             assert "fehler" in captured
 

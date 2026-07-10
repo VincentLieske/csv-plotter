@@ -174,11 +174,16 @@ def plot_data(processed_files, args):
             if pd.api.types.is_datetime64_any_dtype(x_series):
                 continue  # Bereits datetime → ok
 
-            # Prüfe, ob die X-Spalte NUMERIC ist (dann ist --date-x wahrscheinlich ein Fehler)
+            # Prüfe, ob die X-Spalte NUMERIC ist
+            # Bei --date-x: Warnung und Datumsformat deaktivieren
+            # Bei automatischer Erkennung: Warnung, aber Datumsformat trotzdem verwenden
             if pd.api.types.is_numeric_dtype(x_series) or x_col_type == ColumnType.NUMERIC:
-                print(f"Warnung: --date-x angegeben, aber X-Spalte '{processed_data.filename}' ist numerisch. Numerische Darstellung wird verwendet.", file=sys.stderr)
-                has_non_date_file = True
-                break
+                if args.date_x:
+                    print(f"Warnung: --date-x angegeben, aber X-Spalte '{processed_data.filename}' ist numerisch. Numerische Darstellung wird verwendet.", file=sys.stderr)
+                    has_non_date_file = True
+                    break
+                # Bei automatischer Erkennung: ignorieren und Datumsformat trotzdem verwenden
+                continue
 
             # Versuche die X-Daten als Datum zu konvertieren (für TEXT-Spalten)
             try:
@@ -187,13 +192,17 @@ def plot_data(processed_files, args):
                     # Erfolgreich konvertiert - verwende konvertierte Daten
                     processed_data.parsed_columns[0].series = converted
                 else:
-                    print(f"Warnung: --date-x angegeben, aber X-Spalte '{processed_data.filename}' kann nicht als Datum formatiert werden. Numerische Darstellung wird verwendet.", file=sys.stderr)
+                    if args.date_x:
+                        print(f"Warnung: --date-x angegeben, aber X-Spalte '{processed_data.filename}' kann nicht als Datum formatiert werden. Numerische Darstellung wird verwendet.", file=sys.stderr)
+                        has_non_date_file = True
+                        break
+                    # Bei automatischer Erkennung: ignoriere nicht-konvertierbare Werte
+            except Exception as e:
+                if args.date_x:
+                    print(f"Warnung: --date-x Fehler bei Datumskonvertierung: {e}. Numerische Darstellung wird verwendet.", file=sys.stderr)
                     has_non_date_file = True
                     break
-            except Exception as e:
-                print(f"Warnung: --date-x Fehler bei Datumskonvertierung: {e}. Numerische Darstellung wird verwendet.", file=sys.stderr)
-                has_non_date_file = True
-                break
+                # Bei automatischer Erkennung: ignoriere Fehler
 
         if has_non_date_file:
             x_has_date = False
@@ -399,9 +408,9 @@ def open_pdfs(pdf_files):
         try:
             subprocess.Popen([SUMATRA_PDF_PATH, "/n", pdf])
         except FileNotFoundError:
-            print(f"Warnung: SumatraPDF nicht gefunden unter {SUMATRA_PDF_PATH}")
+            print(f"Warnung: SumatraPDF nicht gefunden unter {SUMATRA_PDF_PATH}", file=sys.stderr)
         except Exception as e:
-            print(f"Warnung: Konnte PDF '{pdf}' nicht öffnen: {e}")
+            print(f"Warnung: Konnte PDF '{pdf}' nicht öffnen: {e}", file=sys.stderr)
 
 
 def main():
