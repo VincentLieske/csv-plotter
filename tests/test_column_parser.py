@@ -179,7 +179,7 @@ class TestIsGermanNumber:
         assert ColumnParser._is_german_number("1.") is False
 
     def test_comma_without_decimals_is_true(self):
-        """'10,' → True (wird von _parse_single_numeric unterstützt)"""
+        """'10,' → True"""
         assert ColumnParser._is_german_number("10,") is True
 
     def test_double_dot_german_number_is_true(self):
@@ -189,26 +189,6 @@ class TestIsGermanNumber:
     def test_double_dot_negative_german_number_is_true(self):
         """'-1..234,56' → True"""
         assert ColumnParser._is_german_number("-1..234,56") is True
-
-    def test_consistency_with_parse_single_numeric_simple(self):
-        """'1,5': _is_german_number und _parse_single_numeric konsistent"""
-        assert ColumnParser._is_german_number("1,5") is True
-        assert ColumnParser._parse_single_numeric("1,5") == 1.5
-
-    def test_consistency_with_parse_single_numeric_thousands(self):
-        """'1.234,56': _is_german_number und _parse_single_numeric konsistent"""
-        assert ColumnParser._is_german_number("1.234,56") is True
-        assert ColumnParser._parse_single_numeric("1.234,56") == 1234.56
-
-    def test_consistency_with_parse_single_numeric_comma_no_decimals(self):
-        """'10,': _is_german_number und _parse_single_numeric konsistent"""
-        assert ColumnParser._is_german_number("10,") is True
-        assert ColumnParser._parse_single_numeric("10,") == 10.0
-
-    def test_consistency_with_parse_single_numeric_double_dot(self):
-        """'1..234,56': _is_german_number und _parse_single_numeric konsistent"""
-        assert ColumnParser._is_german_number("1..234,56") is True
-        assert ColumnParser._parse_single_numeric("1..234,56") == 1234.56
 
     def test_plus_prefix_german_number(self):
         """'+1,5' → True (Plus-Präfix wird unterstützt)"""
@@ -528,113 +508,6 @@ class TestParseNumericColumn:
         s = pd.Series(["-1.234.567"])
         result = ColumnParser._parse_numeric_column(s)
         assert result.iloc[0] == -1234567.0
-
-
-class TestParseSingleNumeric:
-    """Direkte Unit-Tests für _parse_single_numeric"""
-
-    def test_simple_german_comma(self):
-        """'1,5' → 1.5"""
-        assert ColumnParser._parse_single_numeric("1,5") == 1.5
-
-    def test_negative_german_comma(self):
-        """'-1,5' → -1.5"""
-        assert ColumnParser._parse_single_numeric("-1,5") == -1.5
-
-    def test_german_thousands_and_comma(self):
-        """'1.234,56' → 1234.56"""
-        assert ColumnParser._parse_single_numeric("1.234,56") == 1234.56
-
-    def test_negative_german_thousands_and_comma(self):
-        """'-1.234,56' → -1234.56"""
-        assert ColumnParser._parse_single_numeric("-1.234,56") == -1234.56
-
-    def test_german_thousands_dot_without_comma(self):
-        """'1.000' → 1000.0 (Tausenderpunkt)"""
-        assert ColumnParser._parse_single_numeric("1.000") == 1000.0
-
-    def test_negative_german_thousands_dot_without_comma(self):
-        """'-1.000' → -1000.0"""
-        assert ColumnParser._parse_single_numeric("-1.000") == -1000.0
-
-    def test_multi_thousands_dot_without_comma(self):
-        """'1.234.567' → 1234567.0"""
-        assert ColumnParser._parse_single_numeric("1.234.567") == 1234567.0
-
-    def test_negative_multi_thousands_dot(self):
-        """'-1.234.567' → -1234567.0"""
-        assert ColumnParser._parse_single_numeric("-1.234.567") == -1234567.0
-
-    def test_english_dot_notation(self):
-        """'1234.56' → 1234.56"""
-        assert ColumnParser._parse_single_numeric("1234.56") == 1234.56
-
-    def test_english_decimal_with_4_digits(self):
-        """'1.2345' → 1.2345 (4 Nachkommastellen → kein Tausenderpunkt)"""
-        assert ColumnParser._parse_single_numeric("1.2345") == 1.2345
-
-    def test_english_decimal_with_2_digits(self):
-        """'1.23' → 1.23 (2 Nachkommastellen → kein Tausenderpunkt)"""
-        assert ColumnParser._parse_single_numeric("1.23") == 1.23
-
-    def test_negative_english_number(self):
-        """'-1.5' → -1.5"""
-        assert ColumnParser._parse_single_numeric("-1.5") == -1.5
-
-    def test_negative_integer(self):
-        """'-42' → -42.0"""
-        assert ColumnParser._parse_single_numeric("-42") == -42.0
-
-    def test_positive_integer(self):
-        """'42' → 42.0"""
-        assert ColumnParser._parse_single_numeric("42") == 42.0
-
-    def test_empty_string(self):
-        """'' → NaN"""
-        assert pd.isna(ColumnParser._parse_single_numeric(""))
-
-    def test_nan_string(self):
-        """'nan' → NaN"""
-        assert pd.isna(ColumnParser._parse_single_numeric("nan"))
-
-    def test_invalid_text(self):
-        """'abc' → NaN"""
-        assert pd.isna(ColumnParser._parse_single_numeric("abc"))
-
-    def test_boolean_true(self):
-        """'true' → NaN"""
-        assert pd.isna(ColumnParser._parse_single_numeric("true"))
-
-    def test_boolean_false(self):
-        """'false' → NaN"""
-        assert pd.isna(ColumnParser._parse_single_numeric("false"))
-
-    def test_comma_without_decimals(self):
-        """'10,' → 10.0"""
-        assert ColumnParser._parse_single_numeric("10,") == 10.0
-
-    def test_double_dot_german_number(self):
-        """'1..234,56' → 1234.56 (doppelte Punkte werden entfernt)"""
-        assert ColumnParser._parse_single_numeric("1..234,56") == 1234.56
-
-    def test_whitespace_handling(self):
-        """' 1,5 ' → 1.5 (Whitespace wird getrimmt,
-        da _parse_numeric_column vorher trimmt)"""
-        # Hinweis: _parse_single_numeric selbst trimmt nicht,
-        # das passiert in _parse_numeric_column. Hier testen wir
-        # den direkten Aufruf ohne Trim.
-        assert ColumnParser._parse_single_numeric("1,5") == 1.5
-
-    def test_none_type(self):
-        """None → NaN"""
-        assert pd.isna(ColumnParser._parse_single_numeric(None))
-
-    def test_typeerror_handling(self):
-        """Objekt das TypeError wirft → NaN"""
-        class BadStr:
-            def __str__(self):
-                raise TypeError("bad")
-        assert pd.isna(ColumnParser._parse_single_numeric(BadStr()))
 
 
 class TestParseDateColumn:

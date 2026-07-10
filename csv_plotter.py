@@ -24,7 +24,9 @@ from column_parser import ColumnType
 from csv_parser import parse_csv_file
 
 # Pfad zu SumatraPDF (Portable Version, sperrt PDFs nicht)
-# Kann über Umgebungsvariable SUMATRA_PDF_PATH überschrieben werden
+# Der Default-Pfad ist Windows-spezifisch, da dieses Tool nur auf Windows
+# läuft. Für andere Installationsorte per Umgebungsvariable überschreiben.
+# Falls SumatraPDF nicht gefunden wird, wird das PDF-Öffnen übersprungen.
 SUMATRA_PDF_PATH = os.environ.get(
     "SUMATRA_PDF_PATH",
     r"C:\PortableApps\SumatraPDFPortable\SumatraPDFPortable.exe"
@@ -352,7 +354,9 @@ def export_tables(processed_files, args):
             table_title = processed_file.filename
             elements.append(Paragraph(f"Messwerte Tabelle: {table_title}", styles['Heading1']))
 
-            # Teile große Tabellen in mehrere Subtabellen (max 30 Zeilen pro Subtabelle)
+            # Teile große Tabellen in mehrere Subtabellen auf, damit jede Subtabelle
+            # auf eine A4-Seite passt (30 Zeilen ist ein konservativer Erfahrungswert
+            # für die Standard-Schriftgröße von ReportLab bei mehrspaltigen Tabellen)
             max_rows_per_col = 30
             col_lengths = [len(col.series) for col in cols]
             num_rows = min(col_lengths)

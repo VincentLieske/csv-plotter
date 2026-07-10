@@ -4,7 +4,10 @@ Tests für den CSV-Parser — Datei-Einlesen und Spalten-Parsing.
 import os
 from csv_parser import parse_csv_file, ProcessedCSVFile
 from column_parser import ColumnType
-from tests.helpers import create_temp_csv, create_temp_csv_binary
+from tests.helpers import (
+    create_temp_csv, create_temp_csv_binary,
+    QUOTED_NUMERIC_CSV, QUOTED_COMMA_IN_TEXT,
+)
 
 
 class TestParseCsvFile:
@@ -139,5 +142,41 @@ class TestParseCsvFile:
             result = parse_csv_file(path)
             assert result.parsed_columns[0].column_name == "Temperatur (°C)"
             assert result.parsed_columns[1].column_name == "Luftfeuchtigkeit (%)"
+        finally:
+            os.unlink(path)
+
+    def test_quoted_numeric_values_end_to_end(self):
+        """CSV mit in Anführungszeichen stehenden Zahlen wird korrekt geparst
+        (pd.read_csv entfernt die Anführungszeichen bereits beim Einlesen)"""
+        path = create_temp_csv(QUOTED_NUMERIC_CSV)
+        try:
+            result = parse_csv_file(path)
+            assert result.parsed_columns[0].column_type == ColumnType.NUMERIC
+            assert result.parsed_columns[1].column_type == ColumnType.NUMERIC
+            assert result.parsed_columns[0].series.iloc[0] == 1.5
+            assert result.parsed_columns[1].series.iloc[1] == 20.5
+        finally:
+            os.unlink(path)
+
+    def test_quoted_comma_in_text_end_to_end(self):
+        """Anführungszeichen schützen Kommas in Textwerten vor dem CSV-Parser"""
+        path = create_temp_csv(QUOTED_COMMA_IN_TEXT)
+        try:
+            result = parse_csv_file(path)
+            assert result.parsed_columns[1].column_type == ColumnType.TEXT
+            assert result.parsed_columns[1].series.iloc[0] == "Hallo, Welt"
+        finally:
+            os.unlink(path)
+
+    def test_scientific_notation_end_to_end(self):
+        """Wissenschaftliche Notation in einer echten CSV-Datei wird korrekt geparst"""
+        content = "X;Y\n1e5;2.5e-3\n1.0E+2;3e1\n"
+        path = create_temp_csv(content)
+        try:
+            result = parse_csv_file(path)
+            assert result.parsed_columns[0].column_type == ColumnType.NUMERIC
+            assert result.parsed_columns[1].column_type == ColumnType.NUMERIC
+            assert result.parsed_columns[0].series.iloc[0] == 100000.0
+            assert result.parsed_columns[1].series.iloc[0] == 0.0025
         finally:
             os.unlink(path)

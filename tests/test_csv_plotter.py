@@ -59,6 +59,25 @@ class TestFormatCell:
         assert isinstance(result, str)
         assert len(result) > 0
 
+    def test_numeric_with_german_locale_uses_comma_separator(self):
+        """Mit explizit gesetztem deutschen Locale → Komma als Dezimaltrenner
+        (statt nur auf einen nicht-leeren String zu prüfen)"""
+        original = locale.getlocale(locale.LC_NUMERIC)
+        try:
+            for german_locale in ('de_DE.UTF-8', 'de_DE', 'German_Germany.1252', 'German'):
+                try:
+                    locale.setlocale(locale.LC_NUMERIC, german_locale)
+                    break
+                except locale.Error:
+                    continue
+            else:
+                pytest.skip("Kein deutsches Locale auf diesem System verfügbar")
+            result = format_cell(1234.56, ColumnType.NUMERIC, use_locale_numeric=True)
+            assert ',' in result
+            assert result == "1234,56" or result == "1.234,56"
+        finally:
+            locale.setlocale(locale.LC_NUMERIC, original)
+
     def test_text_value_stripped(self):
         """Text → str(value) mit getrimmtem Whitespace"""
         result = format_cell("  Hallo Welt  ", ColumnType.TEXT)

@@ -38,7 +38,9 @@ class ColumnParser:
     """
     Parst CSV-Spalten und erkennt ihren Datentyp automatisch.
 
-    Voraussetzung: CSV wurde mit pd.read_csv(sep=';', decimal=',') gelesen.
+    Voraussetzung: CSV wurde mit pd.read_csv(sep=';', dtype=str) gelesen.
+    Das Zahlenformat (deutsches Komma vs. englischer Punkt) wird von
+    dieser Klasse selbst per Heuristik erkannt (siehe _detect_numeric_style).
     """
 
     # Regex für Datumsformate: DD.MM.YYYY, YYYY-MM-DD, DD/MM/YY, etc.
@@ -80,8 +82,8 @@ class ColumnParser:
 
         - Komma als Dezimaltrenner (z.B. '1,5', '-1,5', '+1,5')
         - Optional Tausenderpunkte (z.B. '1.234,56', '-1.234,56')
-        - Komma ohne Dezimalstellen: '10,' → True (wird von _parse_single_numeric unterstützt)
-        - Doppelte Punkte: '1..234,56' → True (wird von _parse_single_numeric unterstützt)
+        - Komma ohne Dezimalstellen: '10,' → True
+        - Doppelte Punkte: '1..234,56' → True
         - Kein Komma: '1234' → False (wird von to_numeric bereits erfasst)
         - Punkt-Zahl: '1.5' → False (englische Notation)
 
@@ -267,37 +269,6 @@ class ColumnParser:
         Ein Punkt mit != 3 folgenden Ziffern ist ein Dezimalpunkt (z.B. "1.5", "1.2345").
         """
         return bool(re.search(r'\.\d{3}$', s))
-
-    @staticmethod
-    def _parse_single_numeric(value: str) -> float:
-        """
-        Parst einen einzelnen String-Wert in einen float.
-
-        Unterstützte Formate:
-        - Deutsch mit Komma: "1,5" → 1.5, "-1,5" → -1.5
-        - Deutsch mit Tausenderpunkt + Komma: "1.234,56" → 1234.56
-        - Deutsch mit Tausenderpunkt ohne Komma: "1.000" → 1000.0, "1.234.567" → 1234567.0
-        - Englisch mit Punkt: "1.5" → 1.5, "1234.56" → 1234.56, "-1.5" → -1.5
-        - Integer: "42" → 42.0
-
-        Returns:
-            float oder NaN bei ungültigen Werten
-        """
-        try:
-            value_str = str(value)
-            if not value_str or value_str == 'nan':
-                return float('nan')
-            if ',' in value_str:
-                # Deutsches Format mit Komma (z.B. "1,5" oder "-1,5")
-                return float(value_str.replace('.', '').replace(',', '.'))
-            elif '.' in value_str and ColumnParser._is_thousands_dot(value_str):
-                # Tausenderpunkt ohne Komma (z.B. "1.000", "-1.000")
-                return float(value_str.replace('.', ''))
-            else:
-                # Normales Integer, englisches Float oder ungültig
-                return float(value_str)
-        except (ValueError, TypeError):
-            return float('nan')
 
     @staticmethod
     def _parse_numeric_column(column_values: pd.Series) -> pd.Series:
