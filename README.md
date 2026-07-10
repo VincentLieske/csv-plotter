@@ -55,7 +55,21 @@ python csv_plotter.py <CSV-Datei1> [<CSV-Datei2> ...] [Optionen]
 - `--bw`: Aktiviert Schwarz-Weiß-Darstellung mit verschiedenen Markern. Damit sieht's auf einem Schwarz-Weiß-Drucker besser aus – viel klarer als Graustufen-Konvertierung.
 - `--no-pdf-view`: Verhindert automatisches Öffnen der PDFs nach der Erstelung. Nützlich für Skripte oder Server ohne GUI.
 - `--date-x`: Erzwingt Datumsformat für die X-Achse (erste Spalte). Nützlich wenn die automatische Erkennung versagt oder wenn die X-Spalte wie ein Datum aussieht (z.B. "01.01.2024") aber fälschlicherweise als Zahl erkannt wurde.
+- `--dayfirst {auto,true,false}`: Übersteuert die Tag/Monat-zuerst-Erkennung für Datumsspalten (Default: `auto`). Siehe [Konvertierungs-Policy](#konvertierungs-policy-für-datum-und-zahlenspalten).
+- `--decimal {auto,comma,dot}`: Übersteuert die Dezimaltrenner-Erkennung für Zahlenspalten (Default: `auto`). Siehe [Konvertierungs-Policy](#konvertierungs-policy-für-datum-und-zahlenspalten).
 - `-?` oder `--help`: Zeigt die Hilfe an und beendet das Programm.
+
+## Konvertierungs-Policy für Datum- und Zahlenspalten
+
+Datum- und Zahlenspalten werden nach demselben Prinzip geparst:
+
+- Das Format (Tag- vs. Monat-zuerst bei Daten, Komma- vs. Punkt-Dezimaltrenner bei Zahlen) wird pro Datei per Heuristik aus einer Stichprobe der Spalte erkannt. Es wird angenommen, dass das Format **innerhalb einer Datei konsistent** ist. Über mehrere Dateien hinweg wird das Format unabhängig neu erkannt und kann abweichen.
+- Werte, die sich mit dem erkannten Format trotzdem nicht konvertieren lassen, werden **nicht stillschweigend verworfen**: Sie werden als `NaN`/`NaT` behandelt (ignoriert) und als Warnung auf der Konsole ausgegeben (Dateiname, Spalte, Anzahl, Beispielwerte).
+- Tauchen viele solche Warnungen auf, ist das das Signal, entweder die Quelldaten zu bereinigen oder die Heuristik gezielt zu übersteuern:
+  - `--dayfirst true|false` erzwingt Tag- bzw. Monat-zuerst für alle Datumsspalten.
+  - `--decimal comma|dot` erzwingt deutsches Komma bzw. englischen Punkt für alle Zahlenspalten.
+
+  Beide Parameter gelten für den gesamten Lauf (alle übergebenen Dateien).
 
 ## Workflow zur Datenerstellung
 
@@ -87,8 +101,8 @@ python csv_plotter.py <CSV-Datei1> [<CSV-Datei2> ...] [Optionen]
 ## Hinweise
 
 - Das Skript versucht das Datumsformat automatisch zu erkennen und passt Datumsformate entsprechend an.
-- Bei Problemen mit der Datumsinterpretation überprüfe das Format in deinen CSVs oder verwende `--date-x`.
-- **Bekannte Einschränkung:** Gemischte Datumsformate innerhalb einer Spalte (z.B. ISO `2024-03-15` neben deutschem `DD.MM.YYYY`) werden nicht korrekt erkannt. Die ISO-Werte werden dann zu `NaT` (Not a Time). In der Praxis kommen gemischte Formate extrem selten vor.
+- Bei Problemen mit der Datumsinterpretation überprüfe das Format in deinen CSVs, verwende `--date-x` oder übersteuere die Erkennung mit `--dayfirst`/`--decimal` (siehe [Konvertierungs-Policy](#konvertierungs-policy-für-datum-und-zahlenspalten)).
+- **Bekannte Einschränkung:** Bei stark gemischten Datumsformaten innerhalb einer Spalte (z.B. ISO `2024-03-15` neben deutschem `DD.MM.YYYY`, wenn ISO überwiegt) kann die automatische Erkennung danebenliegen. Betroffene Werte werden dann nicht stillschweigend verworfen, sondern als Warnung gemeldet und als `NaT` behandelt — in dem Fall hilft `--dayfirst` zur Übersteuerung. In der Praxis kommen gemischte Formate extrem selten vor.
 - Bei großen Datensätzen teilt das Skript Tabellen automatisch in mehrere Spalten auf.
 - **Hinweis:** Unterschiedlich lange Spalten werden mit einer Warnung versehen. Die kürzere Länge wird verwendet, überschüssige Werte werden ignoriert.
 

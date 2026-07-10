@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import argparse
 import locale
+import warnings
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -20,8 +21,9 @@ import os
 import math
 import subprocess
 import sys
-from column_parser import ColumnType
-from csv_parser import parse_csv_file
+from typing import Any, Dict, List, Optional, Tuple
+from column_parser import ColumnType, NumericStyle
+from csv_parser import parse_csv_file, ProcessedCSVFile
 
 # Pfad zu SumatraPDF (Portable Version, sperrt PDFs nicht)
 # Der Default-Pfad ist Windows-spezifisch, da dieses Tool nur auf Windows
@@ -31,9 +33,21 @@ SUMATRA_PDF_PATH = os.environ.get(
     "SUMATRA_PDF_PATH",
     r"C:\PortableApps\SumatraPDFPortable\SumatraPDFPortable.exe"
 )
+# SumatraPDF-Flag: neues Fenster statt vorhandenes wiederzuverwenden
+# (wichtig, damit mehrfach erzeugte PDFs nicht dasselbe Fenster überschreiben)
+_SUMATRA_NEW_WINDOW_FLAG = "/n"
+
+# Anzeigeformat für Datumsachsen/-zellen (deutsches Format, konsistent zwischen
+# Plot-Achse und Tabellen-PDF)
+_DATE_DISPLAY_FORMAT = "%d.%m.%Y"
+
+# Teile große Tabellen in mehrere Subtabellen auf, damit jede Subtabelle auf
+# eine A4-Seite passt (30 Zeilen ist ein konservativer Erfahrungswert für die
+# Standard-Schriftgröße von ReportLab bei mehrspaltigen Tabellen)
+_MAX_ROWS_PER_SUBTABLE = 30
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parst Kommandozeilen-Argumente"""
     parser = argparse.ArgumentParser(
         description='CSV-Plotter und Tabellenexport mit PDF-Ausgabe',
@@ -51,11 +65,19 @@ def parse_args():
                         help='Erzwingt Dezimalpunkt (.) in Tabellen-PDFs (statt lokaler Komma-Formatierung)')
     parser.add_argument('--date-x', action='store_true',
                         help='Erzwingt Datumsformat für X-Achse (erste Spalte)')
+    parser.add_argument('--dayfirst', choices=['auto', 'true', 'false'], default='auto',
+                        help='Übersteuert die Tag/Monat-zuerst-Erkennung für Datumsspalten\n'
+                             '(true=Tag zuerst, false=Monat zuerst, auto=Heuristik pro Datei, Default: auto).\n'
+                             'Nützlich, wenn die Heuristik bei uneindeutigen Datumsangaben danebenliegt.')
+    parser.add_argument('--decimal', choices=['auto', 'comma', 'dot'], default='auto',
+                        help='Übersteuert die Dezimaltrenner-Erkennung für Zahlenspalten\n'
+                             '(comma=deutsches Komma, dot=englischer Punkt, auto=Heuristik pro Datei, Default: auto).\n'
+                             'Nützlich, wenn die Heuristik bei uneindeutigen Zahlenformaten danebenliegt.')
     parser.add_argument('-?', '--help', action='help', help='Diese Hilfe anzeigen und beenden')
     return parser.parse_args()
 
 
-def _setup_locale(args):
+def _setup_locale(args: argparse.Namespace) -> Tuple[bool, Tuple[Optional[str], Optional[str]]]:
     """
     Richtet locale-aware Dezimalformatierung ein.
 
@@ -81,7 +103,7 @@ def _setup_locale(args):
     return use_locale_numeric, original_locale
 
 
-def _restore_locale(original_locale):
+def _restore_locale(original_locale: Tuple[Optional[str], Optional[str]]) -> None:
     """Stellt das ursprüngliche Locale wieder her."""
     try:
         locale.setlocale(locale.LC_NUMERIC, original_locale)
@@ -100,7 +122,7 @@ def _unescape_newlines(text: str) -> str:
     return str(text).replace("\\n", "\n")
 
 
-def plot_data(processed_files, args):
+def plot_data(processed_files: List[ProcessedCSVFile], args: argparse.Namespace) -> str:
     """
     Erstellt ein Scatterplot mit Linien aus den geparsten CSV-Daten.
 
@@ -141,7 +163,7 @@ def plot_data(processed_files, args):
     x_has_date = args.date_x
 
     # Lokaler Speicher für konvertierte X-Serien (um Side Effects auf processed_files zu vermeiden)
-    converted_x_series = {}
+    converted_x_series: Dict[int, pd.Series] = {}
 
     # Wenn X-Achse potentiell Datum ist: prüfe und konvertiere X-Spalten vor dem Plotten
     # Dies muss VOR dem Plot-Loop passieren, damit konvertierte Daten verwendet werden können
@@ -173,7 +195,11 @@ def plot_data(processed_files, args):
 
             # Versuche die X-Daten als Datum zu konvertieren (für TEXT-Spalten)
             try:
-                converted = pd.to_datetime(x_series, errors='coerce')
+                # Warnung unterdrücken: nicht-konvertierbare Werte werden unten
+                # explizit behandelt (--date-x-Warnung bzw. stille Ignoranz)
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', message='Could not infer format')
+                    converted = pd.to_datetime(x_series, errors='coerce')
                 if converted.notna().any():
                     # Erfolgreich konvertiert - speichere lokal (kein Side Effect auf processed_files)
                     converted_x_series[idx] = converted
@@ -227,7 +253,7 @@ def plot_data(processed_files, args):
             non_date_files = [processed_files[i].filename for i, t in enumerate(all_x_types) if t != ColumnType.DATE]
             print(f"Warnung: Nicht alle X-Spalten sind Datumsspalten ({', '.join(non_date_files)}). Datumsformat wird dennoch verwendet.", file=sys.stderr)
 
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m.%Y'))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter(_DATE_DISPLAY_FORMAT))
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
         fig.autofmt_xdate()  # Dreht Labels automatisch für Lesbarkeit
 
@@ -268,7 +294,7 @@ def plot_data(processed_files, args):
     return pdf_plot
 
 
-def format_cell(value, col_type: ColumnType, use_locale_numeric: bool = False) -> str:
+def format_cell(value: Any, col_type: ColumnType, use_locale_numeric: bool = False) -> str:
     """
     Formatiert einen einzelnen Zellenwert für die Tabellen-PDFs.
 
@@ -286,7 +312,7 @@ def format_cell(value, col_type: ColumnType, use_locale_numeric: bool = False) -
     # Datumsformat: DD.MM.YYYY
     if col_type == ColumnType.DATE:
         try:
-            return pd.Timestamp(value).strftime('%d.%m.%Y')
+            return pd.Timestamp(value).strftime(_DATE_DISPLAY_FORMAT)
         except Exception:
             return str(value)
     # Zahlenformat: locale-aware wenn möglich (z.B. "1.234,56" in Deutschland)
@@ -304,7 +330,7 @@ def format_cell(value, col_type: ColumnType, use_locale_numeric: bool = False) -
     return str(value)
 
 
-def export_tables(processed_files, args):
+def export_tables(processed_files: List[ProcessedCSVFile], args: argparse.Namespace) -> List[str]:
     """
     Exportiert die geparsten Messwerte als Tabellen-PDFs.
 
@@ -357,7 +383,7 @@ def export_tables(processed_files, args):
             # Teile große Tabellen in mehrere Subtabellen auf, damit jede Subtabelle
             # auf eine A4-Seite passt (30 Zeilen ist ein konservativer Erfahrungswert
             # für die Standard-Schriftgröße von ReportLab bei mehrspaltigen Tabellen)
-            max_rows_per_col = 30
+            max_rows_per_col = _MAX_ROWS_PER_SUBTABLE
             col_lengths = [len(col.series) for col in cols]
             num_rows = min(col_lengths)
             
@@ -415,20 +441,20 @@ def export_tables(processed_files, args):
         _restore_locale(original_locale)
 
 
-def open_pdfs(pdf_files):
+def open_pdfs(pdf_files: List[str]) -> None:
     """Öffnet alle PDFs in SumatraPDF (sperrt Dateien nicht)"""
     if not pdf_files:
         return
     for pdf in pdf_files:
         try:
-            subprocess.Popen([SUMATRA_PDF_PATH, "/n", pdf])
+            subprocess.Popen([SUMATRA_PDF_PATH, _SUMATRA_NEW_WINDOW_FLAG, pdf])
         except FileNotFoundError:
             print(f"Warnung: SumatraPDF nicht gefunden unter {SUMATRA_PDF_PATH}", file=sys.stderr)
         except Exception as e:
             print(f"Warnung: Konnte PDF '{pdf}' nicht öffnen: {e}", file=sys.stderr)
 
 
-def main():
+def main() -> None:
     """Hauptfunktion: Parst CSV-Dateien und exportiert Plot + Tabellen"""
     try:
         args = parse_args()
@@ -439,8 +465,19 @@ def main():
                 print(f"Fehler: Datei nicht gefunden: '{file}'", file=sys.stderr)
                 sys.exit(1)
 
+        # CLI-Overrides für die Format-Heuristik auflösen (siehe column_parser.py Policy)
+        dayfirst_override = {'auto': None, 'true': True, 'false': False}[args.dayfirst]
+        decimal_override = {
+            'auto': None,
+            'comma': NumericStyle.GERMAN_COMMA,
+            'dot': NumericStyle.ENGLISH_DOT,
+        }[args.decimal]
+
         # Parse alle CSV-Dateien
-        processed_files = [parse_csv_file(file) for file in args.csv_files]
+        processed_files = [
+            parse_csv_file(file, dayfirst_override=dayfirst_override, decimal_override=decimal_override)
+            for file in args.csv_files
+        ]
 
         # Erstelle Diagramm
         pdf_plot = plot_data(processed_files, args)

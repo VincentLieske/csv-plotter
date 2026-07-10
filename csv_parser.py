@@ -11,10 +11,11 @@ ColumnParser die Typ-Erkennung und Zahlen-Parsing-Heuristik sauber
 in einem Pfad durchführen kann — analog zur Datumsstil-Erkennung.
 """
 import os
+import sys
 import pandas as pd
 from dataclasses import dataclass
-from typing import List
-from column_parser import ColumnParser, ColumnResult
+from typing import List, Optional
+from column_parser import ColumnParser, ColumnResult, NumericStyle
 
 
 @dataclass
@@ -24,12 +25,20 @@ class ProcessedCSVFile:
     parsed_columns: List[ColumnResult]  # Die geparsten Spalten (enthält `series`, `column_type`, `column_name`)
 
 
-def parse_csv_file(file_path: str) -> ProcessedCSVFile:
+def parse_csv_file(
+    file_path: str,
+    dayfirst_override: Optional[bool] = None,
+    decimal_override: Optional[NumericStyle] = None,
+) -> ProcessedCSVFile:
     """
     Liest eine CSV-Datei und parst alle Spalten.
 
     Parameters:
         file_path: Pfad zur CSV-Datei
+        dayfirst_override: Übersteuert die dayfirst-Heuristik für alle Datumsspalten
+            dieser Datei (None = Heuristik pro Datei verwenden, siehe ColumnParser)
+        decimal_override: Übersteuert die Dezimaltrenner-Heuristik für alle
+            Zahlenspalten dieser Datei (None = Heuristik pro Datei verwenden)
 
     Returns:
         ProcessedCSVFile mit Dateiname und geparsten Spalten (enthält `series`, `column_type`, `column_name`)
@@ -40,6 +49,12 @@ def parse_csv_file(file_path: str) -> ProcessedCSVFile:
     Alle Werte werden als Strings eingelesen (dtype=str). Die Typ-Erkennung
     und das Parsing erfolgt komplett in ColumnParser, inkl. der Heuristik
     für deutsches (Komma) vs. englisches (Punkt) Zahlenformat pro Spalte.
+
+    Konvertierungs-Policy (siehe column_parser.py Modul-Docstring für Details):
+    Format wird pro Datei erkannt und als innerhalb der Datei konsistent
+    angenommen. Werte, die sich nicht konvertieren lassen, werden als NaN/NaT
+    behandelt und als Warnung auf stderr ausgegeben, statt sie stillschweigend
+    zu verwerfen.
     """
     # Erkenne Encoding via BOM (Byte Order Mark)
     detected_encoding = None
@@ -77,8 +92,18 @@ def parse_csv_file(file_path: str) -> ProcessedCSVFile:
 
     # Parse alle Spalten automatisch
     parsed_columns = [
-        ColumnParser.parse_column_to_series(df.iloc[:, i], df.columns[i])
+        ColumnParser.parse_column_to_series(
+            df.iloc[:, i], df.columns[i],
+            dayfirst_override=dayfirst_override,
+            decimal_override=decimal_override,
+        )
         for i in range(len(df.columns))
     ]
+
+    # Nicht konvertierbare Werte stillschweigend zu NaN zu machen wäre Datenverlust
+    # ohne Hinweis — daher werden sie hier als Warnung ausgegeben (siehe Policy oben).
+    for column in parsed_columns:
+        for warning in column.warnings:
+            print(f"Warnung: Datei '{filename}', Spalte '{column.column_name}': {warning}", file=sys.stderr)
 
     return ProcessedCSVFile(filename=filename, parsed_columns=parsed_columns)

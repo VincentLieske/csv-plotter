@@ -6,11 +6,13 @@ import pandas as pd
 import numpy as np
 import sys
 import locale
+import matplotlib
+matplotlib.use('Agg')  # Kein GUI-Backend nötig; für echte PDF-Integrationstests erforderlich
 from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
 from column_parser import ColumnType, ColumnResult
-from csv_parser import ProcessedCSVFile
-from csv_plotter import format_cell, _setup_locale, plot_data, export_tables, open_pdfs, main, _unescape_newlines
+from csv_parser import ProcessedCSVFile, parse_csv_file
+from csv_plotter import format_cell, _setup_locale, _restore_locale, plot_data, export_tables, open_pdfs, main, _unescape_newlines
 from tests.helpers import make_mock_file, make_default_mock_args
 
 
@@ -170,6 +172,20 @@ class TestUnescapeNewlines:
         result = _unescape_newlines("Zeit\nin s")
         assert result == "Zeit\nin s"
 
+    def test_double_escaped_newline_only_outer_pair_converted(self):
+        """Doppelt-escaped ('\\\\n', also zwei Backslashes + n) wird nur einmal
+        konvertiert: das str.replace("\\n", "\n") matcht das zweite Backslash
+        zusammen mit 'n' und lässt das erste Backslash übrig.
+        Dokumentiert das aktuelle (nicht rekursive) Verhalten bewusst, damit
+        ein künftiger Refactor diesen Fall nicht versehentlich ändert."""
+        result = _unescape_newlines("Zeit\\\\nin s")
+        assert result == "Zeit\\\nin s"
+
+    def test_non_string_input_converted_to_str(self):
+        """Nicht-String-Eingabe (z.B. int) wird zu str() konvertiert statt zu crashen"""
+        result = _unescape_newlines(123)
+        assert result == "123"
+
 
 # ---------------------------------------------------------------------------
 # _setup_locale Tests
@@ -193,6 +209,52 @@ class TestSetupLocale:
         use_locale, original = _setup_locale(args)
         assert isinstance(use_locale, bool)
         assert isinstance(original, tuple)
+
+    def test_setlocale_failure_falls_back_gracefully(self, capsys):
+        """setlocale('') schlägt fehl (z.B. nicht installiertes System-Locale)
+        → Warnung auf stderr, use_locale_numeric bleibt False, kein Crash"""
+        args = Mock()
+        args.table_decimal_dot = False
+        with patch('locale.setlocale', side_effect=locale.Error("unsupported locale")):
+            use_locale, original = _setup_locale(args)
+        assert use_locale is False
+        assert isinstance(original, tuple)
+        assert "Warnung: Konnte System-Locale nicht setzen" in capsys.readouterr().err
+
+    def test_setlocale_c_locale_failure_falls_back_gracefully(self, capsys):
+        """--table-decimal-dot + setlocale('C') schlägt fehl → Warnung, kein Crash"""
+        args = Mock()
+        args.table_decimal_dot = True
+        with patch('locale.setlocale', side_effect=locale.Error("unsupported locale")):
+            use_locale, original = _setup_locale(args)
+        assert use_locale is False
+        assert "Warnung: Konnte C-Locale nicht setzen" in capsys.readouterr().err
+
+    def test_setlocale_generic_exception_is_also_caught(self, capsys):
+        """Auch andere Exceptions (nicht nur locale.Error) werden abgefangen"""
+        args = Mock()
+        args.table_decimal_dot = False
+        with patch('locale.setlocale', side_effect=ValueError("boom")):
+            use_locale, original = _setup_locale(args)
+        assert use_locale is False
+        assert "boom" in capsys.readouterr().err
+
+
+class TestRestoreLocale:
+    """Tests für _restore_locale"""
+
+    def test_restore_calls_setlocale_with_original(self):
+        """Normalfall: setlocale wird mit dem ursprünglichen Locale aufgerufen"""
+        original = ('de_DE', 'UTF-8')
+        with patch('locale.setlocale') as mock_setlocale:
+            _restore_locale(original)
+        mock_setlocale.assert_called_once_with(locale.LC_NUMERIC, original)
+
+    def test_restore_failure_is_silently_swallowed(self):
+        """setlocale schlägt beim Zurücksetzen fehl → keine Exception propagiert
+        (z.B. wenn das ursprüngliche Locale zwischenzeitlich nicht mehr verfügbar ist)"""
+        with patch('locale.setlocale', side_effect=locale.Error("boom")):
+            _restore_locale(('nicht_verfuegbar', None))  # darf nicht raisen
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +410,80 @@ class TestPlotDataStyling:
 
                 plot_data([pf], make_default_mock_args())
                 mock_ax.set_xlabel.assert_called_once_with("Zeit\nin s", fontsize=8)
+
+
+class TestPlotDataManyFiles:
+    """Tests für plot_data mit vielen Dateien (Marker-/Farb-Wrap-around)"""
+
+    def test_seven_files_wraps_marker_list(self):
+        """9 verschiedene Marker sind definiert → bei 7 Dateien mit --bw wird
+        noch kein Wrap-around benötigt, aber alle Marker müssen sich unterscheiden"""
+        files = [make_mock_file(f"m{i}") for i in range(7)]
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                plot_data(files, make_default_mock_args(bw=True))
+
+                markers_used = [call.kwargs['marker'] for call in mock_ax.scatter.call_args_list]
+                assert len(markers_used) == 7
+                assert len(set(markers_used)) == 7  # noch keine Wiederholung
+
+    def test_ten_files_wraps_marker_and_color_lists(self):
+        """10 Dateien > 9 Marker und > 6 Farben → Wrap-around (Modulo) greift,
+        erster und (index+len)-ter Marker/Farbe müssen identisch sein"""
+        files = [make_mock_file(f"m{i}") for i in range(10)]
+
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                plot_data(files, make_default_mock_args(bw=True))
+                markers_used = [call.kwargs['marker'] for call in mock_ax.scatter.call_args_list]
+                assert markers_used[0] == markers_used[9]  # 9 Marker → Index 9 wrappt auf Index 0
+
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                plot_data(files, make_default_mock_args(bw=False))
+                colors_used = [call.kwargs['color'] for call in mock_ax.scatter.call_args_list]
+                assert colors_used[0] == colors_used[6]  # 6 Farben → Index 6 wrappt auf Index 0
+
+
+class TestPlotDataYScaling:
+    """Tests für Y-Achsen-Verhalten bei großen Wertebereichen"""
+
+    def test_large_y_value_range_does_not_raise(self):
+        """Y-Werte über mehrere Größenordnungen (0.001 bis 1e9) → kein Crash,
+        matplotlib übernimmt die Skalierung automatisch"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                result = plot_data(
+                    [make_mock_file("m", y_values=[0.001, 1_000_000.0, 1_000_000_000.0])],
+                    make_default_mock_args(),
+                )
+                assert result == "m_plot.pdf"
+                mock_ax.scatter.assert_called_once()
+
+    def test_large_y_value_range_with_y0_sets_ylim(self):
+        """--y0 mit großem Wertebereich → set_ylim(bottom=0) trotzdem gesetzt"""
+        with patch('matplotlib.pyplot.subplots') as mock_subplots:
+            with patch('matplotlib.pyplot.savefig'), patch('matplotlib.pyplot.close'):
+                mock_fig, mock_ax = MagicMock(), MagicMock()
+                mock_subplots.return_value = (mock_fig, mock_ax)
+
+                plot_data(
+                    [make_mock_file("m", y_values=[10.0, 1_000_000_000.0])],
+                    make_default_mock_args(y0=True),
+                )
+                mock_ax.set_ylim.assert_called_once_with(bottom=0)
 
 
 class TestPlotDataDateHandling:
@@ -673,7 +809,7 @@ class TestMain:
                         with patch('csv_plotter.open_pdfs') as mock_open:
                             main()
 
-        mock_parse.assert_called_once_with(str(csv_file))
+        mock_parse.assert_called_once_with(str(csv_file), dayfirst_override=None, decimal_override=None)
 
     def test_main_file_not_found_exits(self, capsys):
         """Nicht-existierende Datei → Fehlermeldung + exit(1)"""
@@ -862,6 +998,30 @@ class TestExportTablesUnevenColumns:
 
         assert result == ["test_tabelle.pdf"]
 
+    @pytest.mark.parametrize("num_rows,expected_subtables", [
+        (31, 2),  # 30 + 1 → knapp über der Grenze
+        (59, 2),  # 30 + 29 → knapp unter der doppelten Grenze
+        (61, 3),  # 30 + 30 + 1 → knapp über der doppelten Grenze
+    ])
+    def test_subtable_count_at_boundaries(self, num_rows, expected_subtables):
+        """Grenzfälle rund um die 30-Zeilen-Subtabellen-Aufteilung
+        (30/60 sind exakte Vielfache, 31/59/61 sind die Off-by-one-Fälle)"""
+        col_x = ColumnResult(series=pd.Series(range(1, num_rows + 1), dtype=float),
+                            column_type=ColumnType.NUMERIC, column_name="X")
+        col_y = ColumnResult(series=pd.Series(range(10, 10 + num_rows), dtype=float),
+                            column_type=ColumnType.NUMERIC, column_name="Y")
+        pf = ProcessedCSVFile(filename="test", parsed_columns=[col_x, col_y])
+
+        with patch('csv_plotter.SimpleDocTemplate') as mock_doc_template:
+            mock_doc_instance = MagicMock()
+            mock_doc_template.return_value = mock_doc_instance
+            with patch('csv_plotter.Table') as mock_table:
+                with patch('locale.setlocale'), patch('locale.getlocale', return_value=('german', 'cp1252')):
+                    export_tables([pf], make_default_mock_args(table_decimal_dot=False))
+
+        # +1 für die äußere Layout-Tabelle
+        assert mock_table.call_count == expected_subtables + 1
+
 
 # ---------------------------------------------------------------------------
 # format_cell: Spezialfälle (extrahiert aus TestPlotData)
@@ -886,3 +1046,78 @@ class TestFormatCellSpecial:
         """format_cell(False, NUMERIC, use_locale_numeric=True) → 'False' (nicht '0')"""
         assert format_cell(False, ColumnType.NUMERIC, use_locale_numeric=True) == "False"
         assert format_cell(True, ColumnType.NUMERIC, use_locale_numeric=True) == "True"
+
+
+# ---------------------------------------------------------------------------
+# Integrationstests: echte PDF-Erstellung (kein Mocking von matplotlib/reportlab)
+# ---------------------------------------------------------------------------
+
+class TestPdfIntegration:
+    """End-to-End-Tests, die tatsächliche PDF-Dateien auf der Festplatte erzeugen.
+
+    Diese Tests mocken matplotlib/reportlab NICHT — sie prüfen, dass die
+    komplette Pipeline (plot_data / export_tables) valide, nicht-leere
+    PDF-Dateien erzeugt statt nur die Aufrufe der Bibliotheken.
+    """
+
+    def test_plot_data_creates_valid_pdf_on_disk(self, tmp_path, monkeypatch):
+        """plot_data() erzeugt eine echte, nicht-leere PDF-Datei mit PDF-Header"""
+        monkeypatch.chdir(tmp_path)
+        pf = make_mock_file("messung_integration")
+
+        pdf_path_str = plot_data([pf], make_default_mock_args())
+        pdf_path = tmp_path / pdf_path_str
+
+        assert pdf_path.exists()
+        assert pdf_path.stat().st_size > 0
+        with open(pdf_path, 'rb') as f:
+            assert f.read(5) == b'%PDF-'
+
+    def test_export_tables_creates_valid_pdf_on_disk(self, tmp_path, monkeypatch):
+        """export_tables() erzeugt eine echte, nicht-leere Tabellen-PDF"""
+        monkeypatch.chdir(tmp_path)
+        pf = make_mock_file("tabelle_integration")
+
+        pdf_paths = export_tables([pf], make_default_mock_args())
+        assert len(pdf_paths) == 1
+        pdf_path = tmp_path / pdf_paths[0]
+
+        assert pdf_path.exists()
+        assert pdf_path.stat().st_size > 0
+        with open(pdf_path, 'rb') as f:
+            assert f.read(5) == b'%PDF-'
+
+    def test_export_tables_with_many_rows_creates_valid_multi_subtable_pdf(self, tmp_path, monkeypatch):
+        """Große Tabelle (>30 Zeilen, mehrere Subtabellen) → trotzdem valides PDF"""
+        monkeypatch.chdir(tmp_path)
+        num_rows = 65
+        col_x = ColumnResult(series=pd.Series(range(1, num_rows + 1), dtype=float),
+                            column_type=ColumnType.NUMERIC, column_name="X")
+        col_y = ColumnResult(series=pd.Series(range(10, 10 + num_rows), dtype=float),
+                            column_type=ColumnType.NUMERIC, column_name="Y")
+        pf = ProcessedCSVFile(filename="gross", parsed_columns=[col_x, col_y])
+
+        pdf_paths = export_tables([pf], make_default_mock_args())
+        pdf_path = tmp_path / pdf_paths[0]
+
+        assert pdf_path.exists()
+        assert pdf_path.stat().st_size > 0
+        with open(pdf_path, 'rb') as f:
+            assert f.read(5) == b'%PDF-'
+
+    def test_full_pipeline_end_to_end_from_csv_to_pdfs(self, tmp_path, monkeypatch):
+        """Komplette Pipeline: echte CSV-Datei → parse_csv_file → plot_data +
+        export_tables → zwei valide PDFs auf der Festplatte"""
+        monkeypatch.chdir(tmp_path)
+        csv_file = tmp_path / "messung.csv"
+        csv_file.write_text("Zeit;Temperatur\n1,0;20,5\n2,0;21,3\n3,0;19,8\n", encoding='utf-8')
+
+        processed = parse_csv_file(str(csv_file))
+        plot_path = tmp_path / plot_data([processed], make_default_mock_args())
+        table_paths = [tmp_path / p for p in export_tables([processed], make_default_mock_args())]
+
+        for path in [plot_path] + table_paths:
+            assert path.exists()
+            assert path.stat().st_size > 0
+            with open(path, 'rb') as f:
+                assert f.read(5) == b'%PDF-'

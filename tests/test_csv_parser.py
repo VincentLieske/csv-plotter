@@ -2,8 +2,11 @@
 Tests für den CSV-Parser — Datei-Einlesen und Spalten-Parsing.
 """
 import os
+import tempfile
+import pandas as pd
+import pytest
 from csv_parser import parse_csv_file, ProcessedCSVFile
-from column_parser import ColumnType
+from column_parser import ColumnType, NumericStyle
 from tests.helpers import (
     create_temp_csv, create_temp_csv_binary,
     QUOTED_NUMERIC_CSV, QUOTED_COMMA_IN_TEXT,
@@ -178,5 +181,77 @@ class TestParseCsvFile:
             assert result.parsed_columns[1].column_type == ColumnType.NUMERIC
             assert result.parsed_columns[0].series.iloc[0] == 100000.0
             assert result.parsed_columns[1].series.iloc[0] == 0.0025
+        finally:
+            os.unlink(path)
+
+
+class TestParseCsvFileEmptyFile:
+    """Tests für komplett leere CSV-Dateien (0 Bytes)"""
+
+    def test_zero_byte_file_raises_pandas_empty_data_error(self):
+        """0-Byte-Datei → pandas.errors.EmptyDataError propagiert nach oben
+        (main() fängt das als generischen Fehler ab und beendet mit exit(1))"""
+        fd, path = tempfile.mkstemp(suffix='.csv')
+        os.close(fd)
+        try:
+            with pytest.raises(pd.errors.EmptyDataError):
+                parse_csv_file(path)
+        finally:
+            os.unlink(path)
+
+    def test_header_only_file_produces_zero_row_columns(self):
+        """Nur eine Header-Zeile, keine Datenzeilen → Spalten mit 0 Zeilen,
+        kein Fehler"""
+        path = create_temp_csv("X;Y\n")
+        try:
+            result = parse_csv_file(path)
+            assert len(result.parsed_columns) == 2
+            assert len(result.parsed_columns[0].series) == 0
+        finally:
+            os.unlink(path)
+
+
+class TestParseCsvFileOverrides:
+    """Tests für dayfirst_override / decimal_override in parse_csv_file"""
+
+    def test_dayfirst_override_forces_day_first_interpretation(self):
+        """dayfirst_override=True erzwingt Tag-zuerst auch bei uneindeutigem Datum"""
+        path = create_temp_csv("Datum;Wert\n03.04.2024;1\n")
+        try:
+            result = parse_csv_file(path, dayfirst_override=True)
+            assert result.parsed_columns[0].series.iloc[0] == pd.Timestamp(2024, 4, 3)
+        finally:
+            os.unlink(path)
+
+    def test_dayfirst_override_false_forces_month_first_interpretation(self):
+        """dayfirst_override=False erzwingt Monat-zuerst"""
+        path = create_temp_csv("Datum;Wert\n03.04.2024;1\n")
+        try:
+            result = parse_csv_file(path, dayfirst_override=False)
+            assert result.parsed_columns[0].series.iloc[0] == pd.Timestamp(2024, 3, 4)
+        finally:
+            os.unlink(path)
+
+    def test_decimal_override_dot_forces_english_interpretation(self):
+        """decimal_override=ENGLISH_DOT erzwingt Punkt als Dezimaltrenner,
+        auch wenn die Heuristik ohne Override deutsches Komma annehmen würde"""
+        path = create_temp_csv("X;Y\n1.5;2.5\n")
+        try:
+            result = parse_csv_file(path, decimal_override=NumericStyle.ENGLISH_DOT)
+            assert result.parsed_columns[0].series.iloc[0] == 1.5
+        finally:
+            os.unlink(path)
+
+    def test_conversion_warning_printed_to_stderr(self, capsys):
+        """Nicht konvertierbare Werte lösen eine Warnung mit Dateiname und
+        Spaltenname auf stderr aus (Konvertierungs-Policy, siehe column_parser.py)"""
+        # Mit erzwungenem dayfirst=False wird "24.12.2024" ungültig (Monat 24)
+        path = create_temp_csv("Datum;Wert\n01.02.2024;1\n24.12.2024;2\n")
+        try:
+            result = parse_csv_file(path, dayfirst_override=False)
+            assert result.parsed_columns[0].series.isna().sum() == 1
+            err = capsys.readouterr().err
+            assert "Warnung:" in err
+            assert "Spalte 'Datum'" in err
         finally:
             os.unlink(path)
