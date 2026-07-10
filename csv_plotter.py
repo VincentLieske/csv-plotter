@@ -46,6 +46,10 @@ _DATE_DISPLAY_FORMAT = "%d.%m.%Y"
 # Standard-Schriftgröße von ReportLab bei mehrspaltigen Tabellen)
 _MAX_ROWS_PER_SUBTABLE = 30
 
+# Plot-Titel je nach Anzahl der Dateien
+_PLOT_TITLE_SINGLE = "Messdaten"
+_PLOT_TITLE_MULTI = "Vergleich Messungen"
+
 
 def parse_args() -> argparse.Namespace:
     """Parst Kommandozeilen-Argumente"""
@@ -271,7 +275,7 @@ def plot_data(processed_files: List[ProcessedCSVFile], args: argparse.Namespace)
     # Konfiguriere Achsen und Titel
     ax.set_xlabel(x_label, fontsize=8)
     ax.set_ylabel(y_label, fontsize=8)
-    ax.set_title("Messdaten" if single_file else "Vergleich Messungen")
+    ax.set_title(_PLOT_TITLE_SINGLE if single_file else _PLOT_TITLE_MULTI)
     ax.grid(True)
     ax.legend()
 
@@ -455,7 +459,20 @@ def open_pdfs(pdf_files: List[str]) -> None:
 
 
 def main() -> None:
-    """Hauptfunktion: Parst CSV-Dateien und exportiert Plot + Tabellen"""
+    """
+    Hauptfunktion: Parst CSV-Dateien und exportiert Plot + Tabellen
+
+    Fehlerbehandlungs-Strategie über die Module hinweg:
+    - csv_plotter.py (dieses Modul) ist die einzige Stelle, die den Prozess
+      beendet (sys.exit) — es fängt hier alle Exceptions aus den Parser-Modulen
+      ab und wandelt sie in eine Fehlermeldung + Exit-Code um.
+    - csv_parser.py wirft ValueError bei nicht lesbaren Dateien (z.B. alle
+      Encodings fehlgeschlagen); das ist ein Abbruchgrund für den ganzen Lauf.
+    - column_parser.py wirft bewusst keine Exceptions für nicht konvertierbare
+      Einzelwerte, sondern gibt NaN/NaT + eine Warnung zurück (siehe dortiger
+      Modul-Docstring) — ein einzelner unparsbarer Wert soll nicht den
+      gesamten Lauf abbrechen.
+    """
     try:
         args = parse_args()
 

@@ -257,7 +257,8 @@ class ColumnParser:
         1. Wenn pandas bereits als numeric erkannt UND nicht all-NaN → NUMERIC
         2. Sonst: Scanne erste 100 Werte auf Datumsformat
         3. Wenn > 60% Datumsformat → DATE
-        4. Wenn > 60% können als Zahl geparst werden (inkl. deutscher Tausenderpunkt-Formate) → NUMERIC
+        4. Wenn > 60% als Zahl erkannt (deutsches Komma/Tausenderpunkte ODER
+           einfache Punkt-/Integer-Notation, pro Wert kombiniert) → NUMERIC
         5. Fallback → TEXT
         """
         # pd.read_csv(decimal=',') konvertiert deutsche Kommazahlen automatisch
@@ -278,20 +279,15 @@ class ColumnParser:
         if date_hits / len(sample) > _MAJORITY_THRESHOLD:
             return ColumnType.DATE
 
-        # Fallback: Versuche als Zahl zu parsen (mit deutschem Komma + Tausenderpunkten)
+        # Zahl, wenn deutsches Format (Komma, ggf. Tausenderpunkte) ODER einfache
+        # Notation (englischer Punkt, Integer) zutrifft — beide Heuristiken werden
+        # pro Wert kombiniert, damit gemischte Spalten (z.B. teils deutsch, teils
+        # englisch notiert) nicht an einem einzelnen Check vorbeirutschen.
         numeric_hits = (
-            sample
-            .apply(lambda v: ColumnParser._is_german_number(v))
-            .sum()
-        )
+            sample.apply(ColumnParser._is_german_number)
+            | pd.to_numeric(sample.str.replace(',', '.', regex=False), errors='coerce').notna()
+        ).sum()
         if numeric_hits / len(sample) > _MAJORITY_THRESHOLD:
-            return ColumnType.NUMERIC
-
-        # Zusätzlich: Einfache to_numeric (für englische Punkt-Notation und Integers)
-        numeric_hits_simple = pd.to_numeric(
-            sample.str.replace(',', '.', regex=False), errors='coerce'
-        ).notna().sum()
-        if numeric_hits_simple / len(sample) > _MAJORITY_THRESHOLD:
             return ColumnType.NUMERIC
 
         return ColumnType.TEXT
